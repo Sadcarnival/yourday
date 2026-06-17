@@ -68,8 +68,8 @@
     --pad:26px;--font:'Open Sans','Segoe UI',system-ui,-apple-system,sans-serif;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
-  html,body{height:100%;}
-  body{background:var(--bg);color:var(--fg);font-family:var(--font);overflow:hidden;
+  html{height:100%;overflow:hidden;}
+  body{position:fixed;inset:0;background:var(--bg);color:var(--fg);font-family:var(--font);overflow:hidden;
     display:flex;flex-direction:column;-webkit-font-smoothing:antialiased;user-select:none;
     transition:background .25s,color .25s;}
 
