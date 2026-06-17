@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="your day">
+<meta name="theme-color" content="#000000" id="pwa-theme-color">
+<link rel="manifest" id="pwa-manifest">
 <title>your day</title>
 
 <!--
@@ -76,9 +82,6 @@
   /* ── status bar ── */
   .statusbar{display:flex;justify-content:flex-end;align-items:center;gap:12px;
     padding:10px var(--pad) 0;font-size:13px;letter-spacing:.5px;color:var(--fg);min-height:30px;}
-  .battery{width:24px;height:12px;border:1.5px solid var(--fg);border-radius:1px;position:relative;}
-  .battery::before{content:"";position:absolute;left:1px;top:1px;bottom:1px;width:16px;background:var(--fg);}
-  .battery::after{content:"";position:absolute;right:-3px;top:3px;bottom:3px;width:2px;background:var(--fg);}
 
   /* ── header ── */
   .kicker{padding:14px var(--pad) 0;font-size:13px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:var(--fg);opacity:.88;}
@@ -357,7 +360,7 @@
   </div>
 </div>
 
-<div class="statusbar"><span class="battery"></span><span id="clock">7:50</span></div>
+<div class="statusbar"><span id="clock">7:50</span></div>
 <div class="kicker" id="kicker">a glance at your day</div>
 <div class="kicker-date" id="kickerDate"></div>
 <div class="pivot"><div class="pivot-strip animate" id="strip"></div></div>
@@ -1200,7 +1203,24 @@ function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),no
 window.addEventListener('resize',()=>layout(true));
 schedMidnight();
 
-/* ══ INIT ══ */
+/* ══ PWA MANIFEST ══ */
+(function(){
+  const icon=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="60" fill="#000"/><text x="256" y="390" text-anchor="middle" font-size="340" font-family="Georgia,serif" fill="#bdbdbd">d</text></svg>`;
+  const m={
+    name:'your day',short_name:'your day',
+    description:'a personal to-do app',
+    start_url:'./',scope:'./',
+    display:'standalone',
+    background_color:'#000000',theme_color:'#000000',
+    orientation:'portrait-primary',
+    icons:[{src:'data:image/svg+xml,'+encodeURIComponent(icon),sizes:'512x512',type:'image/svg+xml',purpose:'any maskable'}]
+  };
+  try{
+    const b=new Blob([JSON.stringify(m)],{type:'application/json'});
+    document.getElementById('pwa-manifest').href=URL.createObjectURL(b);
+  }catch(e){}
+})();
+
 applyTheme(loadTheme());
 updateKicker();
 // Auth listener above handles everything else after Firebase resolves
