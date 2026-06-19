@@ -188,7 +188,7 @@
   .sel-bar{position:fixed;left:0;right:0;bottom:0;z-index:40;height:88px;background:var(--bg);border-top:1px solid var(--border);display:none;align-items:center;justify-content:space-between;padding:18px var(--pad) 0;transition:background .25s,border-color .25s;}
   .sel-bar.active{display:flex;}
   .sel-count{font-size:13px;font-weight:300;letter-spacing:.8px;color:var(--dim);}
-  .sel-actions{display:flex;gap:24px;}
+  .sel-actions{display:flex;gap:18px;}
   .metro-btn-wrap{position:relative;display:flex;flex-direction:column;align-items:center;}
   .metro-btn-tip{position:absolute;bottom:calc(100% + 12px);left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);font-family:var(--font);font-size:10px;font-weight:600;letter-spacing:1.4px;text-transform:lowercase;padding:4px 8px;white-space:nowrap;pointer-events:none;line-height:1.4;}
   .metro-btn-tip::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--fg);}
@@ -197,6 +197,7 @@
   .metro-btn-wrap:nth-child(3) .metro-btn-tip{bottom:calc(100% + 6px);}
   .metro-btn-wrap:nth-child(4) .metro-btn-tip{bottom:calc(100% + 18px);}
   .metro-btn-wrap:nth-child(5) .metro-btn-tip{bottom:calc(100% + 8px);}
+  .metro-btn-wrap:nth-child(6) .metro-btn-tip{bottom:calc(100% + 18px);}
   .metro-btn{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--fg);background:transparent;color:var(--fg);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,border-color .25s,color .25s;flex-shrink:0;}
   .metro-btn:active{background:var(--btn-active);}
 
@@ -379,6 +380,9 @@
 <div class="sel-bar" id="selBar">
   <span class="sel-count" id="selCount">0 selected</span>
   <div class="sel-actions">
+    <div class="metro-btn-wrap" id="selEditWrap" style="display:none;"><span class="metro-btn-tip">edit</span>
+      <button class="metro-btn" id="selEditBtn"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
+    </div>
     <div class="metro-btn-wrap"><span class="metro-btn-tip">done</span>
       <button class="metro-btn" id="selDoneBtn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 12 9 17 20 7"/></svg></button>
     </div>
@@ -783,15 +787,41 @@ function renderPanel(i){
 
 /* ══ TASK SWIPE — promote / demote ══ */
 const SW_THRESH=72;
+let lastActivate=0;
+/* Single reliable entry point for activating a task (tap) */
+function activateTask(taskEl,target){
+  const now=Date.now();
+  if(now-lastActivate<600)return;   // dedupe touch + synthesized click
+  lastActivate=now;
+  const taskId=taskEl.dataset.id;
+  if(selectionMode){toggleTaskSelection(taskId);return;}
+  if(target){
+    if(target.closest('.task-check')){toggleTask(taskEl);return;}
+    const chk=target.closest('.chk-item');
+    if(chk){toggleCheckItem(chk);return;}
+  }
+  const t=cats[index].tasks.find(x=>x.id===taskId);
+  openSheet(t||null);
+}
 function attachTaskSwipe(el,bgR,bgL,task){
-  let x0=0,y0=0,dx=0,decided=false,swiping=false;
+  let x0=0,y0=0,dx=0,dy=0,decided=false,swiping=false,startTarget=null,lpTimer=null,lpFired=false;
+  function clearLP(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}}
   el.addEventListener('touchstart',e=>{
     const t=e.touches[0];x0=t.clientX;y0=t.clientY;
-    dx=0;decided=false;swiping=false;el.classList.remove('task-sw-anim');
+    dx=0;dy=0;decided=false;swiping=false;lpFired=false;
+    startTarget=e.target;el.classList.remove('task-sw-anim');
+    // long-press → selection mode
+    clearLP();
+    lpTimer=setTimeout(()=>{
+      lpFired=true;lpTimer=null;
+      if(navigator.vibrate)try{navigator.vibrate(15);}catch(_){}
+      selectionMode?toggleTaskSelection(task.id):enterSelectionMode(task.id);
+    },500);
   },{passive:true});
   el.addEventListener('touchmove',e=>{
     if(e.touches.length!==1)return;
-    const t=e.touches[0];dx=t.clientX-x0;const dy=t.clientY-y0;
+    const t=e.touches[0];dx=t.clientX-x0;dy=t.clientY-y0;
+    if((Math.abs(dx)>9||Math.abs(dy)>9))clearLP();   // any real movement cancels long-press
     if(!decided){
       if(Math.abs(dx)>9&&Math.abs(dx)>Math.abs(dy)*1.1){decided=true;swiping=true;}
       else if(Math.abs(dy)>9){decided=true;}
@@ -804,6 +834,7 @@ function attachTaskSwipe(el,bgR,bgL,task){
     else{bgL.style.opacity=pct;bgR.style.opacity=0;}
   },{passive:false});
   function end(){
+    clearLP();
     bgR.style.opacity=0;bgL.style.opacity=0;
     el.classList.add('task-sw-anim');el.style.transform='';
     if(swiping){
@@ -817,11 +848,14 @@ function attachTaskSwipe(el,bgR,bgL,task){
         if(task.indent)el.className+=' indent-'+task.indent;
         flashTask(el,'p');showToast('your day','↱ promoted'+(task.indent===0?' to main task':' to level '+task.indent));persist();
       }
+    }else if(!lpFired&&Math.abs(dx)<9&&Math.abs(dy)<9){
+      // stationary tap → activate (edit / toggle / select)
+      activateTask(el,startTarget);
     }
     swiping=false;decided=false;
   }
   el.addEventListener('touchend',end,{passive:true});
-  el.addEventListener('touchcancel',end,{passive:true});
+  el.addEventListener('touchcancel',()=>{clearLP();bgR.style.opacity=0;bgL.style.opacity=0;el.classList.add('task-sw-anim');el.style.transform='';swiping=false;decided=false;},{passive:true});
 }
 function flashTask(el,dir){el.classList.add('flash-'+dir);setTimeout(()=>el.classList.remove('flash-'+dir),480);}
 
@@ -863,7 +897,17 @@ function toggleTaskSelection(taskId){
   const taskEl=[...pager.children[index].querySelectorAll('.task')].find(el=>el.dataset.id===taskId);
   if(taskEl)taskEl.classList.toggle('task-sel-on',selectedIds.has(taskId));
 }
-function updateSelectionUI(){document.getElementById('selCount').textContent=selectedIds.size+' selected';}
+function updateSelectionUI(){
+  document.getElementById('selCount').textContent=selectedIds.size+' selected';
+  document.getElementById('selEditWrap').style.display=selectedIds.size===1?'flex':'none';
+}
+document.getElementById('selEditBtn').addEventListener('click',()=>{
+  if(selectedIds.size!==1)return;
+  const id=[...selectedIds][0];
+  const t=cats[index].tasks.find(t=>t.id===id);
+  exitSelectionMode();
+  if(t)openSheet(t);
+});
 document.getElementById('selDoneBtn').addEventListener('click',()=>{selectedIds.forEach(id=>{const t=cats[index].tasks.find(t=>t.id===id);if(t&&!t.done){t.done=true;t.completedAt=Date.now();}});persist();exitSelectionMode();});
 document.getElementById('selUndoneBtn').addEventListener('click',()=>{selectedIds.forEach(id=>{const t=cats[index].tasks.find(t=>t.id===id);if(t&&t.done){t.done=false;t.completedAt=null;}});persist();exitSelectionMode();});
 document.getElementById('selShareBtn').addEventListener('click',()=>{
@@ -880,19 +924,17 @@ document.getElementById('selDelBtn').addEventListener('click',()=>{
 });
 document.getElementById('selCancelBtn').addEventListener('click',exitSelectionMode);
 
-/* ══ SWIPE / TAP ══ */
-let dragging=false,decided=false,startX=0,startY=0,startT=0;
-let longTimer=null,pressEl=null,moved=false,origTarget=null,longPressHandled=false;
+/* ══ PAGER: category swipe (tasks handle their own tap/long-press/swipe via touch) ══ */
+let dragging=false,decided=false,startX=0,startY=0,startT=0,pressEl=null,moved=false,origTarget=null;
 pager.addEventListener('pointerdown',e=>{
   origTarget=e.target;startX=e.clientX;startY=e.clientY;startT=Date.now();
-  decided=false;dragging=false;moved=false;longPressHandled=false;
+  decided=false;dragging=false;moved=false;
   try{pager.setPointerCapture(e.pointerId);}catch(_){}
   pressEl=origTarget.closest('.task');
-  if(pressEl){longTimer=setTimeout(()=>{longTimer=null;longPressHandled=true;selectionMode?toggleTaskSelection(pressEl.dataset.id):enterSelectionMode(pressEl.dataset.id);},520);}
 });
 pager.addEventListener('pointermove',e=>{
   const dx=e.clientX-startX,dy=e.clientY-startY;
-  if(Math.abs(dx)>6||Math.abs(dy)>6){moved=true;if(longTimer){clearTimeout(longTimer);longTimer=null;}}
+  if(Math.abs(dx)>6||Math.abs(dy)>6)moved=true;
   if(!decided){
     if(Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy)){
       if(pressEl){decided=true;dragging=false;}  // task handles its own horizontal swipe
@@ -903,28 +945,25 @@ pager.addEventListener('pointermove',e=>{
   if(dragging){e.preventDefault();applyFloat(index-dx/W);}
 },{passive:false});
 function endDrag(e){
-  if(longTimer){clearTimeout(longTimer);longTimer=null;}
   if(dragging){
     const dx=e.clientX-startX,dt=Date.now()-startT,fast=Math.abs(dx)>40&&dt<260;
     if(dx<-W*0.22||(fast&&dx<0))goTo(index+1);
     else if(dx>W*0.22||(fast&&dx>0))goTo(index-1);
     else goTo(index);
-  }else if(!moved&&!longPressHandled){
-    if(index===cats.length){openCatSheet();origTarget=null;return;}
-    const src=origTarget||e.target;
-    if(selectionMode){if(pressEl)toggleTaskSelection(pressEl.dataset.id);}
-    else{
-      const checkBtn=src.closest('.task-check');
-      if(checkBtn){const taskEl=checkBtn.closest('.task');if(taskEl)toggleTask(taskEl);origTarget=null;return;}
-      const chk=src.closest('.chk-item');
-      if(chk){toggleCheckItem(chk);origTarget=null;return;}
-      if(pressEl){const t=cats[index].tasks.find(t=>t.id===pressEl.dataset.id);openSheet(t||null);}
-    }
+  }else if(!moved){
+    // tap on the empty add-category panel
+    if(index===cats.length&&!origTarget.closest('.task')){openCatSheet();}
   }
   dragging=false;decided=false;pressEl=null;origTarget=null;
 }
 pager.addEventListener('pointerup',endDrag);
-pager.addEventListener('pointercancel',()=>{if(longTimer){clearTimeout(longTimer);longTimer=null;}dragging=false;decided=false;origTarget=null;});
+pager.addEventListener('pointercancel',()=>{dragging=false;decided=false;origTarget=null;});
+/* desktop (mouse) fallback — taps don't fire touch events */
+pager.addEventListener('click',e=>{
+  const taskEl=e.target.closest('.task');if(!taskEl)return;
+  if(moved)return;
+  activateTask(taskEl,e.target);
+});
 
 /* pivot: tap=navigate, long-press=options, swipe=change category */
 let pivotLongTimer=null,pivotMoved=false,pivotSwipeX=0;
