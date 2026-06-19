@@ -742,7 +742,7 @@ function resetRecurring(){
 }
 
 /* ══ TOAST ══ */
-let toastWrap=null,toastTimer=null;
+let toastWrap=null,toastEl=null,toastTimer=null,toastHideTimer=null;
 function showToast(title,body){
   let icon='•',green=false,msg=String(body);
   const m=msg.match(/^([↳↱⏰✓⟲↑↓])\s*/);
@@ -753,22 +753,19 @@ function showToast(title,body){
   if(icon==='↳'||icon==='↱'||icon==='↑'||icon==='↓'||icon==='✓')green=true;
 
   if(!toastWrap){toastWrap=document.createElement('div');toastWrap.className='toast-wrap';document.body.appendChild(toastWrap);}
-
-  const el=document.createElement('div');el.className='toast';
-  el.innerHTML=`<div class="toast-icon${green?' green':''}">${icon}</div>`+
+  // reuse a single pill — updates in place so rapid actions never stack
+  clearTimeout(toastHideTimer);
+  if(!toastEl||!toastEl.isConnected){toastEl=document.createElement('div');toastEl.className='toast';toastWrap.appendChild(toastEl);}
+  toastEl.innerHTML=`<div class="toast-icon${green?' green':''}">${icon}</div>`+
     `<div class="toast-txt"><span class="toast-title">${title}</span><span class="toast-msg">${msg}</span></div>`;
-  toastWrap.appendChild(el);
-  requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('visible')));
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(toastEl)toastEl.classList.add('visible');}));
 
-  // single shared timer — every new toast resets it, then all leave together
   clearTimeout(toastTimer);
-  toastTimer=setTimeout(dismissAllToasts,4000);
-}
-function dismissAllToasts(){
-  if(!toastWrap)return;
-  const all=[...toastWrap.querySelectorAll('.toast')];
-  all.forEach(t=>t.classList.remove('visible'));
-  setTimeout(()=>{all.forEach(t=>t.remove());},400);
+  toastTimer=setTimeout(()=>{
+    if(!toastEl)return;
+    toastEl.classList.remove('visible');
+    toastHideTimer=setTimeout(()=>{if(toastEl){toastEl.remove();toastEl=null;}},400);
+  },2600);
 }
 
 /* ══ REMINDERS ══ */
