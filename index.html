@@ -833,7 +833,7 @@ function attachTaskSwipe(el,bgR,bgL,task){
     if(dx>0){bgR.style.opacity=pct;bgL.style.opacity=0;}
     else{bgL.style.opacity=pct;bgR.style.opacity=0;}
   },{passive:false});
-  function end(){
+  function end(e){
     clearLP();
     bgR.style.opacity=0;bgL.style.opacity=0;
     el.classList.add('task-sw-anim');el.style.transform='';
@@ -849,12 +849,13 @@ function attachTaskSwipe(el,bgR,bgL,task){
         flashTask(el,'p');showToast('your day','↱ promoted'+(task.indent===0?' to main task':' to level '+task.indent));persist();
       }
     }else if(!lpFired&&Math.abs(dx)<9&&Math.abs(dy)<9){
-      // stationary tap → activate (edit / toggle / select)
+      // stationary tap → suppress the synthesized ghost click, then activate
+      if(e&&e.cancelable)e.preventDefault();
       activateTask(el,startTarget);
     }
     swiping=false;decided=false;
   }
-  el.addEventListener('touchend',end,{passive:true});
+  el.addEventListener('touchend',end,{passive:false});
   el.addEventListener('touchcancel',()=>{clearLP();bgR.style.opacity=0;bgL.style.opacity=0;el.classList.add('task-sw-anim');el.style.transform='';swiping=false;decided=false;},{passive:true});
 }
 function flashTask(el,dir){el.classList.add('flash-'+dir);setTimeout(()=>el.classList.remove('flash-'+dir),480);}
@@ -1049,9 +1050,21 @@ function openSheet(task){
   }else{
     document.getElementById('sheetTitle').textContent='new task in '+cats[index].name;document.getElementById('saveBtn').textContent='add';
   }
-  taskBg.classList.add('open');taskSheet.classList.add('open');setTimeout(()=>taskInput.focus(),80);
+  taskBg.classList.add('open');taskSheet.classList.add('open');sheetOpenedAt=Date.now();setTimeout(()=>taskInput.focus(),120);
 }
-function closeSheet(){document.body.style.webkitUserSelect='';document.body.style.userSelect='';taskBg.classList.remove('open');taskSheet.classList.remove('open');}
+let sheetOpenedAt=0;
+/* Keep any open bottom-sheet above the on-screen keyboard (Android resizes the visual viewport) */
+function anySheetOpen(){return document.querySelector('.sheet.open');}
+if(window.visualViewport){
+  const vv=window.visualViewport;
+  function adjustSheets(){
+    const lift=Math.max(0,(window.innerHeight-vv.height-vv.offsetTop));
+    document.querySelectorAll('.sheet.open').forEach(s=>{s.style.bottom=lift+'px';});
+  }
+  vv.addEventListener('resize',adjustSheets);
+  vv.addEventListener('scroll',adjustSheets);
+}
+function closeSheet(){document.body.style.webkitUserSelect='';document.body.style.userSelect='';taskBg.classList.remove('open');taskSheet.classList.remove('open');taskSheet.style.bottom='';}
 function saveTask(){
   const text=taskInput.value.trim();if(!text){taskInput.focus();return;}
   let note=null;
@@ -1077,7 +1090,7 @@ function saveTask(){
 document.getElementById('addBtn').addEventListener('click',()=>openSheet(null));
 document.getElementById('cancelBtn').addEventListener('click',closeSheet);
 document.getElementById('saveBtn').addEventListener('click',saveTask);
-taskBg.addEventListener('click',closeSheet);
+taskBg.addEventListener('click',()=>{if(Date.now()-sheetOpenedAt<600)return;closeSheet();});
 taskInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();noteInput.style.display!=='none'?noteInput.focus():noteArea.focus();}});
 
 /* ══ CATEGORY MANAGEMENT ══ */
