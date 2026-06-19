@@ -8,7 +8,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="your day">
 <meta name="theme-color" content="#000000" id="pwa-theme-color">
-<link rel="manifest" id="pwa-manifest">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>your day</title>
 
 <!--
@@ -1393,27 +1396,16 @@ function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),no
 window.addEventListener('resize',()=>layout(true));
 schedMidnight();
 
-/* ══ PWA MANIFEST ══ */
-(function(){
-  const icon=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="60" fill="#000"/><text x="256" y="390" text-anchor="middle" font-size="340" font-family="Georgia,serif" fill="#bdbdbd">d</text></svg>`;
-  const m={
-    name:'your day',short_name:'your day',
-    description:'a personal to-do app',
-    start_url:'./',scope:'./',
-    display:'standalone',
-    background_color:'#000000',theme_color:'#000000',
-    orientation:'portrait-primary',
-    icons:[{src:'data:image/svg+xml,'+encodeURIComponent(icon),sizes:'512x512',type:'image/svg+xml',purpose:'any maskable'}]
-  };
-  try{
-    const b=new Blob([JSON.stringify(m)],{type:'application/json'});
-    document.getElementById('pwa-manifest').href=URL.createObjectURL(b);
-  }catch(e){}
-})();
-
 applyTheme(loadTheme());
 updateKicker();
 // Auth listener above handles everything else after Firebase resolves
+
+/* ══ SERVICE WORKER (required for Android installability / Play Store wrapping) ══ */
+if('serviceWorker'in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
