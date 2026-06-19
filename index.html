@@ -496,6 +496,14 @@
   <div class="sheet-actions" style="margin-top:18px;"><button id="reorderDoneBtn" class="primary">done</button></div>
 </div>
 
+<!-- reorder tasks -->
+<div class="sheet-bg" id="taskReorderBg"></div>
+<div class="sheet" id="taskReorderSheet">
+  <h2 id="taskReorderTitle">hold &amp; drag to reorder</h2>
+  <div id="taskReorderList"></div>
+  <div class="sheet-actions" style="margin-top:18px;"><button id="taskReorderDoneBtn" class="primary">done</button></div>
+</div>
+
 <script>
 /* ════════════════════════════════════════════════
    FIREBASE CONFIG — paste your config here
@@ -966,19 +974,41 @@ pager.addEventListener('click',e=>{
   activateTask(taskEl,e.target);
 });
 
-/* pivot: tap=navigate, long-press=options, swipe=change category */
-let pivotLongTimer=null,pivotMoved=false,pivotSwipeX=0;
-strip.addEventListener('touchstart',e=>{pivotSwipeX=e.touches[0].clientX;},{passive:true});
-strip.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-pivotSwipeX;if(Math.abs(dx)>44){dx<0?goTo(index+1):goTo(index-1);}},{passive:true});
-strip.addEventListener('pointerdown',e=>{
-  const t=e.target.closest('.pivot-title');if(!t||t.classList.contains('pivot-add'))return;
-  pivotMoved=false;pivotLongTimer=setTimeout(()=>{pivotLongTimer=null;showCatOptions(+t.dataset.i);},520);
-});
-strip.addEventListener('pointermove',()=>{pivotMoved=true;if(pivotLongTimer){clearTimeout(pivotLongTimer);pivotLongTimer=null;}});
-strip.addEventListener('pointerup',()=>{if(pivotLongTimer){clearTimeout(pivotLongTimer);pivotLongTimer=null;}});
+/* pivot: tap=navigate, long-press=category options, swipe=change category — all via touch */
+let pvX=0,pvY=0,pvMoved=false,pvLong=null,pvLongFired=false,pvTitleIdx=-1;
+function pvClearLong(){if(pvLong){clearTimeout(pvLong);pvLong=null;}}
+strip.addEventListener('touchstart',e=>{
+  const t=e.target.closest('.pivot-title');
+  pvX=e.touches[0].clientX;pvY=e.touches[0].clientY;pvMoved=false;pvLongFired=false;
+  pvTitleIdx=(t&&!t.classList.contains('pivot-add'))?+t.dataset.i:-1;
+  pvClearLong();
+  if(pvTitleIdx>=0){
+    pvLong=setTimeout(()=>{
+      pvLong=null;pvLongFired=true;
+      if(navigator.vibrate)try{navigator.vibrate(15);}catch(_){}
+      showCatOptions(pvTitleIdx);
+    },480);
+  }
+},{passive:true});
+strip.addEventListener('touchmove',e=>{
+  const dx=e.touches[0].clientX-pvX,dy=e.touches[0].clientY-pvY;
+  if(Math.abs(dx)>8||Math.abs(dy)>8){pvMoved=true;pvClearLong();}
+},{passive:true});
+strip.addEventListener('touchend',e=>{
+  pvClearLong();
+  if(pvLongFired)return;                          // long-press already handled
+  const dx=e.changedTouches[0].clientX-pvX;
+  if(Math.abs(dx)>44){dx<0?goTo(index+1):goTo(index-1);return;}   // swipe = navigate
+  if(!pvMoved){                                   // tap
+    const t=e.target.closest('.pivot-title');if(!t)return;
+    const i=+t.dataset.i;i===cats.length?openCatSheet():goTo(i);
+  }
+},{passive:true});
+/* desktop fallback */
 strip.addEventListener('click',e=>{
+  if('ontouchstart'in window)return;
   const t=e.target.closest('.pivot-title');if(!t)return;
-  const i=+t.dataset.i;if(i===cats.length)openCatSheet();else if(!pivotMoved)goTo(i);
+  const i=+t.dataset.i;i===cats.length?openCatSheet():goTo(i);
 });
 
 /* ══ TASK ACTIONS ══ */
@@ -1100,17 +1130,22 @@ function openCatSheet(editIdx){
   document.getElementById('catSheetTitle').textContent=isEdit?'rename category':'new category';
   document.getElementById('catSaveBtn').textContent=isEdit?'rename':'create';
   catInput.value=isEdit?cats[catSheet._editIdx].name:'';
-  catBg.classList.add('open');catSheet.classList.add('open');setTimeout(()=>catInput.focus(),60);
+  catBg.classList.add('open');catSheet.classList.add('open');catOpenedAt=Date.now();setTimeout(()=>catInput.focus(),120);
 }
-function closeCatSheet(){catBg.classList.remove('open');catSheet.classList.remove('open');}
+let catOpenedAt=0;
+function closeCatSheet(){catBg.classList.remove('open');catSheet.classList.remove('open');catSheet.style.bottom='';}
 function saveCat(){
   const name=catInput.value.trim();if(!name){catInput.focus();return;}
   const isEdit=catSheet._editIdx>=0;
-  if(isEdit){cats[catSheet._editIdx].name=name;closeCatSheet();closeCatOptSheet();build();}
-  else{cats.push({id:uid(),name,tasks:[]});index=cats.length-1;persist();closeCatSheet();build();}
-  persist();
+  const editIdx=catSheet._editIdx;
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  closeCatSheet();          // close FIRST, unconditionally
+  catSheet._editIdx=-1;
+  if(isEdit){cats[editIdx].name=name;closeCatOptSheet();}
+  else{cats.push({id:uid(),name,tasks:[]});index=cats.length-1;}
+  build();persist();
 }
-catBg.addEventListener('click',closeCatSheet);
+catBg.addEventListener('click',()=>{if(Date.now()-catOpenedAt<600)return;closeCatSheet();});
 document.getElementById('catCancelBtn').addEventListener('click',closeCatSheet);
 document.getElementById('catSaveBtn').addEventListener('click',saveCat);
 catInput.addEventListener('keydown',e=>{if(e.key==='Enter')saveCat();});
@@ -1122,6 +1157,9 @@ function showCatOptions(i){
   document.getElementById('catOptName').textContent=cat.name;
   const btns=document.getElementById('catOptBtns');btns.innerHTML='';
   const ren=document.createElement('button');ren.className='action-btn';ren.textContent='rename';ren.onclick=()=>{closeCatOptSheet();openCatSheet(i);};btns.appendChild(ren);
+  if(cat.tasks.length>1){
+    const rt=document.createElement('button');rt.className='action-btn';rt.textContent='reorder tasks';rt.onclick=()=>{closeCatOptSheet();openTaskReorderSheet(i);};btns.appendChild(rt);
+  }
   const reord=document.createElement('button');reord.className='action-btn';reord.textContent='reorder categories';reord.onclick=()=>{closeCatOptSheet();openReorderSheet();};btns.appendChild(reord);
   if(cats.length>1){
     const del=document.createElement('button');del.className='action-btn action-del';
@@ -1135,7 +1173,7 @@ function showCatOptions(i){
 const reorderBg=document.getElementById('reorderBg'),reorderSheet=document.getElementById('reorderSheet');
 let reorderDragInited=false;
 function openReorderSheet(){buildReorderList();if(!reorderDragInited){initReorderDrag(document.getElementById('reorderList'));reorderDragInited=true;}reorderBg.classList.add('open');reorderSheet.classList.add('open');}
-function closeReorderSheet(){reorderBg.classList.remove('open');reorderSheet.classList.remove('open');index=Math.min(index,cats.length-1);build();}
+function closeReorderSheet(){reorderBg.classList.remove('open');reorderSheet.classList.remove('open');reorderSheet.style.bottom='';index=Math.min(index,cats.length-1);build();}
 reorderBg.addEventListener('click',closeReorderSheet);
 document.getElementById('reorderDoneBtn').addEventListener('click',closeReorderSheet);
 function buildReorderList(){
@@ -1174,7 +1212,55 @@ function initReorderDrag(list){
   list.addEventListener('pointerup',drop);list.addEventListener('pointercancel',drop);
 }
 
-/* ══ ACCOUNT ══ */
+/* reorder tasks within a category */
+const taskReorderBg=document.getElementById('taskReorderBg'),taskReorderSheet=document.getElementById('taskReorderSheet');
+let taskReorderCatIdx=-1,taskReorderInited=false;
+function openTaskReorderSheet(catIdx){
+  taskReorderCatIdx=catIdx;
+  document.getElementById('taskReorderTitle').textContent='reorder '+cats[catIdx].name;
+  buildTaskReorderList();
+  if(!taskReorderInited){initTaskReorderDrag(document.getElementById('taskReorderList'));taskReorderInited=true;}
+  taskReorderBg.classList.add('open');taskReorderSheet.classList.add('open');
+}
+function closeTaskReorderSheet(){taskReorderBg.classList.remove('open');taskReorderSheet.classList.remove('open');taskReorderSheet.style.bottom='';build();}
+taskReorderBg.addEventListener('click',closeTaskReorderSheet);
+document.getElementById('taskReorderDoneBtn').addEventListener('click',closeTaskReorderSheet);
+function buildTaskReorderList(){
+  const list=document.getElementById('taskReorderList');list.innerHTML='';
+  cats[taskReorderCatIdx].tasks.forEach((task,i)=>{
+    const item=document.createElement('div');item.className='reorder-item';item.dataset.i=i;
+    const indentPad=task.indent?('margin-left:'+(task.indent*14)+'px;'):'';
+    item.innerHTML=`<span class="reorder-handle">&#8801;</span><span class="reorder-name" style="${indentPad}font-size:${task.indent?17:20}px;${task.done?'opacity:.4;text-decoration:line-through;':''}">${escapeHtml(task.text)}</span>`;
+    list.appendChild(item);
+  });
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function initTaskReorderDrag(list){
+  let dragEl=null,fromIdx=-1,startY=0,origMids=[];
+  list.addEventListener('pointerdown',e=>{
+    const item=e.target.closest('.reorder-item');if(!item)return;
+    e.preventDefault();list.setPointerCapture(e.pointerId);
+    const items=[...list.querySelectorAll('.reorder-item')];
+    fromIdx=items.indexOf(item);origMids=items.map(el=>el.getBoundingClientRect().top+el.offsetHeight/2);
+    startY=e.clientY;dragEl=item;dragEl.classList.add('is-dragging');
+  },{passive:false});
+  list.addEventListener('pointermove',e=>{
+    if(!dragEl)return;e.preventDefault();
+    const dy=e.clientY-startY;dragEl.style.transform=`translateY(${dy}px)`;
+    const dragMidY=dragEl.getBoundingClientRect().top+dragEl.offsetHeight/2;const ih=dragEl.offsetHeight;
+    const items=[...list.querySelectorAll('.reorder-item')];
+    items.forEach((item,i)=>{if(item===dragEl)return;if(i<fromIdx&&dragMidY<origMids[i])item.style.transform=`translateY(${ih}px)`;else if(i>fromIdx&&dragMidY>origMids[i])item.style.transform=`translateY(-${ih}px)`;else item.style.transform='';});
+  },{passive:false});
+  function drop(){
+    if(!dragEl)return;
+    const dragMidY=dragEl.getBoundingClientRect().top+dragEl.offsetHeight/2;
+    const newIdx=origMids.filter((mid,i)=>i!==fromIdx&&mid<dragMidY).length;
+    [...list.querySelectorAll('.reorder-item')].forEach(item=>{item.style.transform='';item.classList.remove('is-dragging');});
+    const fi=fromIdx;dragEl=null;fromIdx=-1;
+    if(newIdx!==fi){const arr=cats[taskReorderCatIdx].tasks;const moved=arr.splice(fi,1)[0];arr.splice(newIdx,0,moved);persist();buildTaskReorderList();}
+  }
+  list.addEventListener('pointerup',drop);list.addEventListener('pointercancel',drop);
+}
 const accountBg=document.getElementById('accountBg'),accountSheet=document.getElementById('accountSheet');
 function openAccountSheet(){accountBg.classList.add('open');accountSheet.classList.add('open');}
 function closeAccountSheet(){accountBg.classList.remove('open');accountSheet.classList.remove('open');}
