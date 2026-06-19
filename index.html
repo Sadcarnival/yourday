@@ -260,17 +260,17 @@
   .cat-add-label{font-size:19px;font-weight:300;color:var(--dim);line-height:1.5;}
   /* toast */
   /* ── pill toast ── */
+  .toast-wrap{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:200;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;max-width:92%;}
   .toast{
-    position:fixed;top:16px;left:50%;transform:translate(-50%,-150%);
-    z-index:200;display:inline-flex;align-items:center;gap:10px;
+    display:inline-flex;align-items:center;gap:10px;
     background:var(--fg);color:var(--bg);
     padding:11px 20px 11px 14px;border-radius:999px;
     box-shadow:0 8px 28px rgba(0,0,0,.4);
-    white-space:nowrap;max-width:88%;
+    white-space:nowrap;max-width:100%;
+    transform:translateY(-150%);opacity:0;
     transition:transform .3s cubic-bezier(.2,.9,.25,1),opacity .25s ease;
-    opacity:0;
   }
-  .toast.visible{transform:translate(-50%,0);opacity:1;}
+  .toast.visible{transform:translateY(0);opacity:1;}
   .toast .toast-icon{
     width:22px;height:22px;border-radius:50%;flex-shrink:0;
     background:rgba(128,128,128,.22);
@@ -554,8 +554,23 @@ const THEMES={
   cream:   {label:'cream',   bg:'#f2e8d5',fg:'#1a1208',dim:'#7a6e56',inactive:'rgba(0,0,0,.22)',border:'#d8cebc',sheetBg:'#e8ddc8',inputBg:'#f2e8d5',inputBorder:'#c8bea8',meta:'#b0a888',metaDone:'#9e9676',overlay:'rgba(0,0,0,.25)',btnActive:'rgba(0,0,0,.07)',doneFg:'#4a8a5c'},
   silver:  {label:'silver',  bg:'#e8e8e8',fg:'#111111',dim:'#787878',inactive:'rgba(0,0,0,.22)',border:'#d0d0d0',sheetBg:'#dcdcdc',inputBg:'#e8e8e8',inputBorder:'#c4c4c4',meta:'#aaaaaa',metaDone:'#969696',overlay:'rgba(0,0,0,.25)',btnActive:'rgba(0,0,0,.07)',doneFg:'#3d8f60'},
   linen:   {label:'linen',   bg:'#ede8df',fg:'#111111',dim:'#7a7068',inactive:'rgba(0,0,0,.22)',border:'#d4cec6',sheetBg:'#e2ddd4',inputBg:'#ede8df',inputBorder:'#c6c0b8',meta:'#aeaaa4',metaDone:'#989490',overlay:'rgba(0,0,0,.25)',btnActive:'rgba(0,0,0,.07)',doneFg:'#467a55'},
+  forest:  {label:'forest',  bg:'#13241a',fg:'#e6efe7',dim:'#6f8576',inactive:'rgba(255,255,255,.22)',border:'#1c3325',sheetBg:'#1f3a29',inputBorder:'#2f4a38',inputBg:'#13241a',meta:'#56695c',metaDone:'#3f4f44',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#5fbf86'},
+  pine:    {label:'pine',    bg:'#0f1f1c',fg:'#dcebe7',dim:'#637e78',inactive:'rgba(255,255,255,.22)',border:'#16302b',sheetBg:'#1a352f',inputBorder:'#2a423c',inputBg:'#0f1f1c',meta:'#4e635e',metaDone:'#3a4a46',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#3fb89a'},
+  hunter:  {label:'hunter',  bg:'#1a2a1e',fg:'#e8efe6',dim:'#76876f',inactive:'rgba(255,255,255,.22)',border:'#243527',sheetBg:'#283d2d',inputBorder:'#374c3b',inputBg:'#1a2a1e',meta:'#5e6f57',metaDone:'#46523f',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#7fb95a'},
+  teal:    {label:'deep teal',bg:'#0e2226',fg:'#dceaec',dim:'#5f8086',inactive:'rgba(255,255,255,.22)',border:'#163034',sheetBg:'#18373c',inputBorder:'#284a50',inputBg:'#0e2226',meta:'#4e676b',metaDone:'#3a4d50',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#3fb0b8'},
+  navy:    {label:'navy',    bg:'#121e30',fg:'#e0e7f0',dim:'#667890',inactive:'rgba(255,255,255,.22)',border:'#1c2b40',sheetBg:'#1f3048',inputBorder:'#2e4260',inputBg:'#121e30',meta:'#556a85',metaDone:'#3f4d63',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#5b92d6'},
+  indigo:  {label:'indigo',  bg:'#1a1832',fg:'#e6e4f2',dim:'#7873a0',inactive:'rgba(255,255,255,.22)',border:'#262340',sheetBg:'#2a2748',inputBorder:'#3a3660',inputBg:'#1a1832',meta:'#66628a',metaDone:'#4c4870',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#8c7fe0'},
+  plum:    {label:'plum',    bg:'#251428',fg:'#efe3f0',dim:'#8a7090',inactive:'rgba(255,255,255,.22)',border:'#341f38',sheetBg:'#3a2240',inputBorder:'#4f2f54',inputBg:'#251428',meta:'#6f5673',metaDone:'#523f57',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#c277c0'},
+  wine:    {label:'wine',    bg:'#2a141b',fg:'#f0e0e4',dim:'#9a7780',inactive:'rgba(255,255,255,.22)',border:'#3a1f27',sheetBg:'#40222c',inputBorder:'#56303a',inputBg:'#2a141b',meta:'#7a5760',metaDone:'#5c434b',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#d16a82'},
+  espresso:{label:'espresso',bg:'#231a14',fg:'#ede2d8',dim:'#9a8772',inactive:'rgba(255,255,255,.22)',border:'#33271f',sheetBg:'#392c22',inputBorder:'#4f3d30',inputBg:'#231a14',meta:'#7a6757',metaDone:'#5c4d40',overlay:'rgba(0,0,0,.55)',btnActive:'rgba(255,255,255,.12)',doneFg:'#c8a05a'},
+  olive:   {label:'olive',   bg:'#5c5f3f',fg:'#f4f3e6',dim:'#aaab86',inactive:'rgba(255,255,255,.28)',border:'#4e5135',sheetBg:'#686b48',inputBorder:'#787a54',inputBg:'#5c5f3f',meta:'#9a9b78',metaDone:'#84855f',overlay:'rgba(0,0,0,.4)',btnActive:'rgba(255,255,255,.14)',doneFg:'#e3e08a'},
+  moss:    {label:'moss',    bg:'#445540',fg:'#eef2e8',dim:'#94a28a',inactive:'rgba(255,255,255,.28)',border:'#384734',sheetBg:'#4f614a',inputBorder:'#5f7259',inputBg:'#445540',meta:'#869579',metaDone:'#6f7d65',overlay:'rgba(0,0,0,.4)',btnActive:'rgba(255,255,255,.14)',doneFg:'#b6d68a'},
+  slate:   {label:'slate',   bg:'#3d4852',fg:'#eef2f5',dim:'#8e9aa3',inactive:'rgba(255,255,255,.28)',border:'#323c45',sheetBg:'#48535e',inputBorder:'#58646f',inputBg:'#3d4852',meta:'#808d96',metaDone:'#69757e',overlay:'rgba(0,0,0,.4)',btnActive:'rgba(255,255,255,.14)',doneFg:'#8fc3d6'},
+  denim:   {label:'denim',   bg:'#3a4d63',fg:'#eaf0f5',dim:'#8a9bad',inactive:'rgba(255,255,255,.28)',border:'#2f4053',sheetBg:'#445872',inputBorder:'#546982',inputBg:'#3a4d63',meta:'#7c8da0',metaDone:'#5d6b7a',overlay:'rgba(0,0,0,.4)',btnActive:'rgba(255,255,255,.14)',doneFg:'#9cc0e0'},
+  terracotta:{label:'terracotta',bg:'#7a4a38',fg:'#f6eae3',dim:'#bd9889',inactive:'rgba(255,255,255,.28)',border:'#683e2e',sheetBg:'#8a5642',inputBorder:'#9c6652',inputBg:'#7a4a38',meta:'#b08977',metaDone:'#996e5c',overlay:'rgba(0,0,0,.4)',btnActive:'rgba(255,255,255,.14)',doneFg:'#f0b58a'},
+  mauve:   {label:'mauve',   bg:'#5d4555',fg:'#f2e9ef',dim:'#a98fa3',inactive:'rgba(255,255,255,.28)',border:'#4e3947',sheetBg:'#6a4f61',inputBorder:'#7c5f72',inputBg:'#5d4555',meta:'#9c829a',metaDone:'#856b80',overlay:'rgba(0,0,0,.4)',btnActive:'rgba(255,255,255,.14)',doneFg:'#d99fcf'},
 };
-const THEME_ORDER=['dark','white','offwhite','cream','silver','linen'];
+const THEME_ORDER=['dark','white','offwhite','cream','silver','linen','forest','pine','hunter','teal','navy','indigo','plum','wine','espresso','olive','moss','slate','denim','terracotta','mauve'];
 let currentTheme='dark';const TKEY='yourday:theme';
 
 function applyTheme(name){
@@ -727,8 +742,8 @@ function resetRecurring(){
 }
 
 /* ══ TOAST ══ */
+let toastWrap=null,toastTimer=null;
 function showToast(title,body){
-  // detect a leading arrow/glyph in the message → use as icon badge, strip from text
   let icon='•',green=false,msg=String(body);
   const m=msg.match(/^([↳↱⏰✓⟲↑↓])\s*/);
   if(m){icon=m[1];msg=msg.slice(m[0].length);}
@@ -737,12 +752,23 @@ function showToast(title,body){
   else if(/remind/i.test(title)){icon='⏰';}
   if(icon==='↳'||icon==='↱'||icon==='↑'||icon==='↓'||icon==='✓')green=true;
 
+  if(!toastWrap){toastWrap=document.createElement('div');toastWrap.className='toast-wrap';document.body.appendChild(toastWrap);}
+
   const el=document.createElement('div');el.className='toast';
   el.innerHTML=`<div class="toast-icon${green?' green':''}">${icon}</div>`+
     `<div class="toast-txt"><span class="toast-title">${title}</span><span class="toast-msg">${msg}</span></div>`;
-  document.body.appendChild(el);
+  toastWrap.appendChild(el);
   requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('visible')));
-  setTimeout(()=>{el.classList.remove('visible');setTimeout(()=>el.remove(),400);},4000);
+
+  // single shared timer — every new toast resets it, then all leave together
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(dismissAllToasts,4000);
+}
+function dismissAllToasts(){
+  if(!toastWrap)return;
+  const all=[...toastWrap.querySelectorAll('.toast')];
+  all.forEach(t=>t.classList.remove('visible'));
+  setTimeout(()=>{all.forEach(t=>t.remove());},400);
 }
 
 /* ══ REMINDERS ══ */
