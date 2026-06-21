@@ -1405,18 +1405,32 @@ function openSheet(task,prefillDueDate){
   taskBg.classList.add('open');taskSheet.classList.add('open');sheetOpenedAt=Date.now();setTimeout(()=>taskInput.focus(),120);
 }
 let sheetOpenedAt=0;
-/* Keep any open bottom-sheet above the on-screen keyboard (Android resizes the visual viewport) */
+/* Keep any open bottom-sheet fully above the on-screen keyboard (Android resizes the visual viewport).
+   Two parts: (1) lift the sheet so its bottom sits above the keyboard, (2) shrink its max-height to
+   match the now-smaller visible area, so the top of the sheet (title + task name) never gets pushed
+   off-screen — without the height fix the sheet kept its full ~92vh height and just got shifted up,
+   which is what was hiding the task-name field behind/above the visible viewport. */
 function anySheetOpen(){return document.querySelector('.sheet.open');}
 if(window.visualViewport){
   const vv=window.visualViewport;
   function adjustSheets(){
     const lift=Math.max(0,(window.innerHeight-vv.height-vv.offsetTop));
-    document.querySelectorAll('.sheet.open').forEach(s=>{s.style.bottom=lift+'px';});
+    const availableH=Math.max(220,vv.height-24); // leave a small margin at the top of the visible area
+    document.querySelectorAll('.sheet.open').forEach(s=>{
+      s.style.bottom=lift+'px';
+      s.style.maxHeight=lift>0?availableH+'px':'';
+    });
   }
   vv.addEventListener('resize',adjustSheets);
   vv.addEventListener('scroll',adjustSheets);
+  // when any field inside an open sheet gains focus, make sure it's scrolled into view
+  // within the sheet's own scroll area (now that the sheet's height is correctly constrained)
+  document.addEventListener('focusin',e=>{
+    const sheet=e.target.closest('.sheet.open');
+    if(sheet)setTimeout(()=>{e.target.scrollIntoView({block:'nearest',behavior:'smooth'});},80);
+  });
 }
-function closeSheet(){document.body.style.webkitUserSelect='';document.body.style.userSelect='';taskBg.classList.remove('open');taskSheet.classList.remove('open');taskSheet.style.bottom='';}
+function closeSheet(){document.body.style.webkitUserSelect='';document.body.style.userSelect='';taskBg.classList.remove('open');taskSheet.classList.remove('open');taskSheet.style.bottom='';taskSheet.style.maxHeight='';}
 function saveTask(){
   const text=taskInput.value.trim();if(!text){taskInput.focus();return;}
   let note=null;
@@ -1468,7 +1482,7 @@ function openCatSheet(editIdx){
   catBg.classList.add('open');catSheet.classList.add('open');catOpenedAt=Date.now();setTimeout(()=>catInput.focus(),120);
 }
 let catOpenedAt=0;
-function closeCatSheet(){catBg.classList.remove('open');catSheet.classList.remove('open');catSheet.style.bottom='';}
+function closeCatSheet(){catBg.classList.remove('open');catSheet.classList.remove('open');catSheet.style.bottom='';catSheet.style.maxHeight='';}
 function saveCat(){
   const name=catInput.value.trim();if(!name){catInput.focus();return;}
   const isEdit=catSheet._editIdx>=0;
