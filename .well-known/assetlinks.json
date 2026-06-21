@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "io.github.sadcarnival.twa",
+        "sha256_cert_fingerprints": ["F2:AA:D1:D8:8E:37:39:B9:33:6D:A5:15:5F:EE:AD:2C:FF:42:20:70:B3:29:B8:51:9E:3B:BF:CA:38:D5:64:0D"]
+      }
+    }]
