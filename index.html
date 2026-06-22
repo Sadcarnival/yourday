@@ -413,7 +413,18 @@
   .appbar-icon-btn.gcal-on{border-color:var(--done-fg);}
   .appbar-icon-btn.gcal-on svg{stroke:var(--done-fg);}
 
-  /* ── Google Calendar events in agenda ── */
+  /* ── overview today section ── */
+  .today-section{margin-bottom:6px;}
+  .today-section-head{display:flex;align-items:baseline;justify-content:space-between;padding:14px 0 4px;}
+  .today-section-title{font-size:22px;font-weight:300;color:var(--fg);}
+  .today-section-add{font-size:11px;color:var(--dim);cursor:pointer;padding:4px 0;}
+  .today-task{padding:10px 0;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid rgba(128,128,128,.06);}
+  .today-task .tt{font-size:20px;font-weight:300;color:var(--fg);flex:1;line-height:1.2;word-break:break-word;}
+  .today-task.done .tt{text-decoration:line-through;opacity:.35;}
+  .today-task .chk{width:20px;height:20px;border-radius:50%;border:1.5px solid var(--dim);flex-shrink:0;margin-top:3px;display:flex;align-items:center;justify-content:center;font-size:10px;cursor:pointer;}
+  .today-task.done .chk{border-color:var(--done-fg);color:var(--done-fg);}
+
+  /* ── google calendar event in agenda ── */
   .gcal-event{padding:12px 0;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid rgba(255,255,255,.04);}
   .gcal-event .cat-tag{color:#4285F4;}
   .gcal-event .t-title{font-size:20px;}
@@ -936,65 +947,78 @@ document.getElementById('guestModeBtn').addEventListener('click',()=>{
   showToast('your day','offline mode — data saved locally');
 });
 
-/* ══ GOOGLE CALENDAR ══ */
-/* ─────────────────────────────────────────────────────────────────────────
-   To enable Google Calendar integration you need to:
-   1. Go to console.cloud.google.com → your Firebase project (yourday-adfa1)
-   2. Enable the "Google Calendar API"
-   3. Under OAuth consent screen → Scopes → add:
-      https://www.googleapis.com/auth/calendar.readonly
-   4. That's it — the existing Google Sign-In flow handles the OAuth token.
-   ───────────────────────────────────────────────────────────────────────── */
-const GCAL_SCOPE='https://www.googleapis.com/auth/calendar.readonly';
-let gcalEnabled=false,gcalEvents={};
+/* ══ GOOGLE CALENDAR (two-way sync) ══
+   Setup required once: Google Cloud Console → yourday-adfa1 project
+   → Enable "Google Calendar API" → OAuth consent screen → add scope:
+     https://www.googleapis.com/auth/calendar.events
+   ════════════════════════════════════════════════════════════════════ */
+const GCAL_SCOPE='https://www.googleapis.com/auth/calendar.events';
+let gcalEnabled=false,gcalEvents={},gcalAccessToken=null;
 
 document.getElementById('gcalBtn').addEventListener('click',async()=>{
   if(guestMode){showToast('calendar','sign in to connect Google Calendar');return;}
   if(!currentUser){showToast('calendar','sign in first');return;}
   if(gcalEnabled){
     // toggle off
-    gcalEnabled=false;gcalEvents={};
+    gcalEnabled=false;gcalEvents={};gcalAccessToken=null;
     document.getElementById('gcalBtn').classList.remove('gcal-on');
     if(pager.children[0])renderOverviewPanel(pager.children[0]);
     showToast('calendar','Google Calendar disconnected');return;
   }
-  // request calendar scope
-  const provider=new firebase.auth.GoogleAuthProvider();
-  provider.addScope(GCAL_SCOPE);
+  const btn=document.getElementById('gcalBtn');btn.classList.add('spinning');
   try{
-    const result=await auth.currentUser.reauthenticateWithPopup(provider);
-    const token=result.credential.accessToken;
+    // signInWithPopup reliably returns accessToken even for already-signed-in users
+    const provider=new firebase.auth.GoogleAuthProvider();
+    provider.addScope(GCAL_SCOPE);
+    // force account chooser so user can confirm + grant scope
+    provider.setCustomParameters({prompt:'consent'});
+    const result=await firebase.auth().signInWithPopup(provider);
+    const token=result.credential?result.credential.accessToken:null;
+    if(!token)throw new Error('no access token returned');
+    gcalAccessToken=token;
     await fetchGCalEvents(token);
     gcalEnabled=true;
-    document.getElementById('gcalBtn').classList.add('gcal-on');
+    btn.classList.add('gcal-on');
     if(pager.children[0])renderOverviewPanel(pager.children[0]);
     showToast('calendar','✓ Google Calendar connected');
   }catch(e){
-    if(e.code==='auth/popup-closed-by-user')return;
-    if(e.message&&e.message.includes('scope')){
+    if(e.code==='auth/popup-closed-by-user'||e.code==='auth/cancelled-popup-request'){/* user cancelled */}
+    else if(e.message&&(e.message.includes('403')||e.message.includes('Calendar API'))){
       showToast('calendar','enable Calendar API in Google Cloud Console first');
     }else{
-      showToast('calendar','could not connect Google Calendar');
+      showToast('calendar','could not connect — check console');
+      console.warn('GCal error:',e);
     }
-    console.warn('GCal error:',e);
   }
+  btn.classList.remove('spinning');
 });
 
+async function gcalRequest(path,method,body,token){
+  const t=token||gcalAccessToken;
+  const res=await fetch('https://www.googleapis.com/calendar/v3'+path,{
+    method:method||'GET',
+    headers:{'Authorization':'Bearer '+t,'Content-Type':'application/json'},
+    body:body?JSON.stringify(body):undefined,
+  });
+  if(res.status===401){gcalEnabled=false;gcalAccessToken=null;document.getElementById('gcalBtn').classList.remove('gcal-on');showToast('calendar','Google Calendar session expired — tap to reconnect');throw new Error('401');}
+  if(!res.ok)throw new Error('GCal API '+res.status);
+  if(res.status===204)return null;
+  return res.json();
+}
+
 async function fetchGCalEvents(token){
-  const now=new Date(),later=new Date();later.setDate(later.getDate()+30);
-  const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?`+
-    `timeMin=${encodeURIComponent(now.toISOString())}&`+
-    `timeMax=${encodeURIComponent(later.toISOString())}&`+
-    `singleEvents=true&orderBy=startTime&maxResults=50`;
-  const res=await fetch(url,{headers:{Authorization:'Bearer '+token}});
-  if(!res.ok)throw new Error('Calendar API returned '+res.status);
-  const data=await res.json();
+  const now=new Date(),later=new Date();later.setDate(later.getDate()+60);
+  const data=await gcalRequest(
+    `/calendars/primary/events?timeMin=${encodeURIComponent(now.toISOString())}&timeMax=${encodeURIComponent(later.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=100`,
+    'GET',null,token
+  );
   gcalEvents={};
   (data.items||[]).forEach(ev=>{
     const dateStr=ev.start.date||(ev.start.dateTime?ev.start.dateTime.slice(0,10):null);
     if(!dateStr)return;
     if(!gcalEvents[dateStr])gcalEvents[dateStr]=[];
     gcalEvents[dateStr].push({
+      id:ev.id,
       title:ev.summary||'(no title)',
       time:ev.start.dateTime?new Date(ev.start.dateTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):null,
       allDay:!!ev.start.date,
@@ -1002,7 +1026,50 @@ async function fetchGCalEvents(token){
   });
 }
 
-function migrateData(data){data.forEach(cat=>cat.tasks.forEach(t=>{t.note=normalizeNote(t.note);if(typeof t.indent!=='number')t.indent=0;if(t.dueDate===undefined)t.dueDate=null;}));return data;}
+async function syncTaskToGcal(task,existingEventId){
+  if(!gcalAccessToken||!task.dueDate)return;
+  const body={
+    summary:task.text,
+    start:{date:task.dueDate},
+    end:{date:task.dueDate},
+    description:'from your day app',
+  };
+  try{
+    let ev;
+    if(existingEventId){
+      ev=await gcalRequest(`/calendars/primary/events/${existingEventId}`,'PUT',body);
+    }else{
+      ev=await gcalRequest('/calendars/primary/events','POST',body);
+    }
+    if(ev&&ev.id)task.gcalEventId=ev.id;
+    // refresh events display
+    await fetchGCalEvents(gcalAccessToken);
+    if(pager.children[0])renderOverviewPanel(pager.children[0]);
+  }catch(e){console.warn('GCal sync error:',e);}
+}
+
+async function deleteGCalEvent(token,eventId){
+  if(!token||!eventId)return;
+  try{
+    await gcalRequest(`/calendars/primary/events/${eventId}`,'DELETE',null,token);
+    await fetchGCalEvents(token);
+    if(pager.children[0])renderOverviewPanel(pager.children[0]);
+  }catch(e){console.warn('GCal delete error:',e);}
+}
+
+function migrateData(data){
+  data.forEach(cat=>cat.tasks.forEach(t=>{
+    t.note=normalizeNote(t.note);
+    if(typeof t.indent!=='number')t.indent=0;
+    if(t.dueDate===undefined)t.dueDate=null;
+    if(t.gcalEventId===undefined)t.gcalEventId=null;
+  }));
+  // ensure the built-in "today" category always exists at index 0
+  if(!data.find(c=>c.id==='__today__')){
+    data.unshift({id:'__today__',name:'today',builtin:true,tasks:[]});
+  }
+  return data;
+}
 
 /* ══ RECURRING ══ */
 function resetRecurring(){
@@ -1076,27 +1143,35 @@ function buildAttrs(task){
   }
   return parts.join('  ·  ');
 }
+/* userCats = cats excluding the built-in __today__ category, used for pivot panels */
+function userCats(){return cats.filter(c=>c.id!=='__today__');}
+function todayCat(){return cats.find(c=>c.id==='__today__')||{id:'__today__',name:'today',builtin:true,tasks:[]};}
+/* panel index → cats[] index maps only to non-today cats (panel 0=overview, 1..N=userCats) */
+function curCat(){const uc=userCats();return(index>=1&&index<=uc.length)?uc[index-1]:null;}
+
 function build(){
   strip.innerHTML='';pager.innerHTML='';
   // panel 0: overview ("your day")
   const ot=document.createElement('div');ot.className='pivot-title pivot-overview';ot.textContent='your day';ot.dataset.i=0;strip.appendChild(ot);
   const op=document.createElement('div');op.className='panel panel-overview';op.dataset.i=0;pager.appendChild(op);renderOverviewPanel(op);
-  // panels 1..cats.length: categories
-  cats.forEach((c,k)=>{
+  // panels 1..N: user categories only (skip __today__ — it lives on the overview)
+  const uc=userCats();
+  uc.forEach((c,k)=>{
     const panelIdx=k+1;
     const t=document.createElement('div');t.className='pivot-title';t.textContent=c.name;t.dataset.i=panelIdx;strip.appendChild(t);
     const p=document.createElement('div');p.className='panel';p.dataset.i=panelIdx;pager.appendChild(p);renderPanel(k);
   });
-  // panel cats.length+1: add-category
-  const addIdx=cats.length+1;
+  // add-category panel
+  const addIdx=uc.length+1;
   const pt=document.createElement('div');pt.className='pivot-title pivot-add';pt.textContent='+';pt.dataset.i=addIdx;strip.appendChild(pt);
   const pp=document.createElement('div');pp.className='panel panel-add';pp.dataset.i=addIdx;
   pp.innerHTML='<div class="cat-add-prompt"><div class="cat-add-plus">+</div><div class="cat-add-label">tap to add a new category</div></div>';
   pager.appendChild(pp);layout(true);
 }
 function renderPanel(i){
-  const p=pager.children[i+1],c=cats[i];
-  if(!c.tasks.length){p.innerHTML='<div class="empty">nothing here yet.<br>tap + to add something.</div>';return;}
+  const uc=userCats();
+  const p=pager.children[i+1],c=uc[i];
+  if(!c||!c.tasks.length){if(p)p.innerHTML='<div class="empty">nothing here yet.<br>tap + to add something.</div>';return;}
   p.innerHTML='';
   c.tasks.forEach(task=>{
     const wrap=document.createElement('div');wrap.className='task-wrap';
@@ -1129,11 +1204,10 @@ function renderPanel(i){
 /* ══════════════════════════════════════
    OVERVIEW PANEL — collapsible calendar + cross-category agenda
 ══════════════════════════════════════ */
-function curCat(){return(index>=1&&index<=cats.length)?cats[index-1]:null;}
 function findTaskLocation(taskId){
   for(let ci=0;ci<cats.length;ci++){
     const idx=cats[ci].tasks.findIndex(t=>t.id===taskId);
-    if(idx>=0)return{catIdx:ci,task:cats[ci].tasks[idx]};
+    if(idx>=0)return{catIdx:ci,task:cats[ci].tasks[idx],isBuiltin:!!cats[ci].builtin};
   }
   return null;
 }
@@ -1145,7 +1219,8 @@ function toggleTaskById(taskId){
   else if(!task.done&&task.reminder&&task.reminder.enabled)scheduleReminders();
   persist();
   renderOverviewPanel(pager.children[0]);
-  if(index>=1&&index<=cats.length&&index-1===loc.catIdx)renderPanel(loc.catIdx);
+  const uc=userCats();
+  if(index>=1&&index<=uc.length&&uc[index-1].id===cats[loc.catIdx].id)renderPanel(uc.indexOf(cats[loc.catIdx]));
 }
 
 let calExpanded=false,calViewMonth=new Date().getMonth(),calViewYear=new Date().getFullYear(),calSelectedDate=fmtDateKey(new Date());
@@ -1167,6 +1242,7 @@ function tasksForDate(dateKey){
 function renderOverviewPanel(panelEl){
   if(!panelEl)return;
   panelEl.innerHTML=`
+    <div class="today-section" id="ovTodaySection"></div>
     <div class="cal${calExpanded?' expanded':''}" id="ovCal">
       <div class="cal-header" id="ovCalHeader">
         <span class="cal-month" id="ovCalMonthLabel"></span>
@@ -1195,7 +1271,30 @@ function renderOverviewPanel(panelEl){
   });
   document.getElementById('ovCalPrev').addEventListener('click',e=>{e.stopPropagation();shiftCalMonth(-1);});
   document.getElementById('ovCalNext').addEventListener('click',e=>{e.stopPropagation();shiftCalMonth(1);});
-  renderCalWeek();renderCalMonthGrid();renderAgenda();
+  renderTodaySection();renderCalWeek();renderCalMonthGrid();renderAgenda();
+}
+
+function renderTodaySection(){
+  const el=document.getElementById('ovTodaySection');if(!el)return;
+  const tc=todayCat();el.innerHTML='';
+  if(!tc.tasks.length){
+    // show a subtle add-prompt if no today tasks yet
+    const add=document.createElement('div');add.className='add-for-day';
+    add.innerHTML='<span class="plus-circle">+</span> add a task for today';
+    add.addEventListener('click',()=>openSheet(null,null,true));
+    el.appendChild(add);return;
+  }
+  const head=document.createElement('div');head.className='today-section-head';
+  head.innerHTML=`<span class="today-section-title">today</span><span class="today-section-add">+ add</span>`;
+  head.querySelector('.today-section-add').addEventListener('click',()=>openSheet(null,null,true));
+  el.appendChild(head);
+  tc.tasks.forEach(task=>{
+    const row=document.createElement('div');row.className='today-task'+(task.done?' done':'');
+    row.innerHTML=`<div class="tt">${task.text}</div><div class="chk">${task.done?'✓':''}</div>`;
+    row.querySelector('.tt').addEventListener('click',()=>openSheet(task));
+    row.querySelector('.chk').addEventListener('click',e=>{e.stopPropagation();toggleTaskById(task.id);});
+    el.appendChild(row);
+  });
 }
 
 function renderCalWeek(){
@@ -1370,9 +1469,9 @@ function flashTask(el,dir){el.classList.add('flash-'+dir);setTimeout(()=>el.clas
 /* ══ PIVOT LAYOUT ══ */
 let titleOffsets=[],W=window.innerWidth;const PADL=26;
 function measure(){W=window.innerWidth;titleOffsets=[...strip.children].map(el=>el.offsetLeft);}
-function titleTranslateFor(f){const lo=Math.max(0,Math.floor(f)),hi=Math.min(cats.length+1,Math.ceil(f)),fr=f-lo;return PADL-(titleOffsets[lo]+(titleOffsets[hi]-titleOffsets[lo])*fr);}
+function titleTranslateFor(f){const lo=Math.max(0,Math.floor(f)),hi=Math.min(userCats().length+1,Math.ceil(f)),fr=f-lo;return PADL-(titleOffsets[lo]+(titleOffsets[hi]-titleOffsets[lo])*fr);}
 function applyFloat(f){
-  f=Math.max(0,Math.min(cats.length+1,f));
+  f=Math.max(0,Math.min(userCats().length+1,f));
   pager.style.transform=`translateX(${-f*W}px)`;
   strip.style.transform=`translateX(${titleTranslateFor(f)}px)`;
   [...strip.children].forEach((el,i)=>{const d=Math.min(1,Math.abs(i-f));el.style.opacity=(1-d*0.74).toFixed(3);});
@@ -1383,7 +1482,7 @@ function layout(instant){
   applyFloat(index);
   if(instant){void pager.offsetWidth;pager.classList.add('animate');strip.classList.add('animate');}
 }
-function goTo(i){index=Math.max(0,Math.min(cats.length+1,i));pager.classList.add('animate');strip.classList.add('animate');applyFloat(index);}
+function goTo(i){index=Math.max(0,Math.min(userCats().length+1,i));pager.classList.add('animate');strip.classList.add('animate');applyFloat(index);}
 
 /* ══ SELECTION MODE ══ */
 let selectionMode=false,selectedIds=new Set();
@@ -1460,7 +1559,7 @@ function endDrag(e){
     else goTo(index);
   }else if(!moved){
     // tap on the empty add-category panel
-    if(index===cats.length+1&&!origTarget.closest('.task')){openCatSheet();}
+    if(index===userCats().length+1&&!origTarget.closest('.task')){openCatSheet();}
   }
   dragging=false;decided=false;pressEl=null;origTarget=null;
 }
@@ -1501,14 +1600,14 @@ strip.addEventListener('touchend',e=>{
   if(Math.abs(dx)>44){dx<0?goTo(index+1):goTo(index-1);return;}   // swipe = navigate
   if(!pvMoved){                                   // tap
     const t=e.target.closest('.pivot-title');if(!t)return;
-    const i=+t.dataset.i;i===cats.length+1?openCatSheet():goTo(i);
+    const i=+t.dataset.i;i===userCats().length+1?openCatSheet():goTo(i);
   }
 },{passive:true});
 /* desktop fallback */
 strip.addEventListener('click',e=>{
   if('ontouchstart'in window)return;
   const t=e.target.closest('.pivot-title');if(!t)return;
-  const i=+t.dataset.i;i===cats.length+1?openCatSheet():goTo(i);
+  const i=+t.dataset.i;i===userCats().length+1?openCatSheet():goTo(i);
 });
 
 /* ══ TASK ACTIONS ══ */
@@ -1579,19 +1678,23 @@ dueDateClearBtn.addEventListener('click',e=>{e.preventDefault();dueDateInput.val
 function renderCatPicker(){
   const row=document.getElementById('catPickerRow');row.innerHTML='';
   cats.forEach((c,ci)=>{
-    const b=document.createElement('button');b.className='pill'+(ci===sheetCatIdx?' active':'');
-    b.textContent=c.name;b.dataset.ci=ci;
+    const b=document.createElement('button');
+    const isTodayBuiltin=c.id==='__today__';
+    b.className='pill'+(ci===sheetCatIdx?' active':'');
+    b.textContent=isTodayBuiltin?'★ today':c.name;
+    b.dataset.ci=ci;
     b.addEventListener('click',()=>{
       sheetCatIdx=ci;
       [...row.children].forEach(x=>x.classList.toggle('active',+x.dataset.ci===ci));
-      if(!editingTaskId)document.getElementById('sheetTitle').textContent='new task in '+cats[ci].name;
+      if(!editingTaskId)document.getElementById('sheetTitle').textContent=
+        isTodayBuiltin?'new task for today':'new task in '+c.name;
     });
     row.appendChild(b);
   });
 }
 
-function openSheet(task,prefillDueDate){
-  if(index===cats.length+1){openCatSheet();return;}
+function openSheet(task,prefillDueDate,forceToday){
+  if(index===userCats().length+1){openCatSheet();return;}
   editingTaskId=task?task.id:null;
   document.body.style.webkitUserSelect='text';document.body.style.userSelect='text';
   newNoteType='text';newRepeat='none';newReminderVal='off';newIndent=0;
@@ -1602,8 +1705,10 @@ function openSheet(task,prefillDueDate){
   updateIndentUI();
   dueDateInput.value='';setDueDateUI(prefillDueDate||null);
 
-  // default category: current category panel if viewing one, else first category (overview context)
-  sheetCatIdx=(index>=1&&index<=cats.length)?index-1:0;
+  // default category: "today" builtin if on overview or forceToday, else current user category
+  const todayIdx=cats.findIndex(c=>c.id==='__today__');
+  if(forceToday&&todayIdx>=0){sheetCatIdx=todayIdx;}
+  else{sheetCatIdx=(index>=1&&index<=userCats().length)?cats.indexOf(userCats()[index-1]):todayIdx>=0?todayIdx:0;}
 
   if(task){
     const loc=findTaskLocation(task.id);
@@ -1675,21 +1780,28 @@ function saveTask(){
     const loc=findTaskLocation(editingTaskId);
     if(loc){
       const task=loc.task;
+      const oldGcalId=task.gcalEventId;
       task.text=text;task.note=note;task.repeat=newRepeat;task.reminder=reminder;task.indent=newIndent;task.dueDate=sheetDueDate;
       if(!reminder&&activeTimers[editingTaskId]){clearTimeout(activeTimers[editingTaskId]);delete activeTimers[editingTaskId];}
       if(sheetCatIdx!==loc.catIdx){
-        // moved to a different category
         cats[loc.catIdx].tasks.splice(cats[loc.catIdx].tasks.findIndex(t=>t.id===editingTaskId),1);
         cats[sheetCatIdx].tasks.push(task);
       }
+      // update gcal event if due date changed
+      if(gcalEnabled&&gcalAccessToken){
+        if(sheetDueDate){syncTaskToGcal(task,oldGcalId);}
+        else if(oldGcalId){deleteGCalEvent(gcalAccessToken,oldGcalId);task.gcalEventId=null;}
+      }
     }
   }else{
-    cats[sheetCatIdx].tasks.push({id:uid(),text,note,indent:newIndent,done:false,createdAt:Date.now(),completedAt:null,repeat:newRepeat,reminder,dueDate:sheetDueDate});
+    const newTask={id:uid(),text,note,indent:newIndent,done:false,createdAt:Date.now(),completedAt:null,repeat:newRepeat,reminder,dueDate:sheetDueDate,gcalEventId:null};
+    cats[sheetCatIdx].tasks.push(newTask);
+    if(gcalEnabled&&gcalAccessToken&&sheetDueDate)syncTaskToGcal(newTask,null);
   }
   build();persist();scheduleReminders();closeSheet();
 }
 document.getElementById('addBtn').addEventListener('click',()=>{
-  if(index===0){openSheet(null,calSelectedDate);}else{openSheet(null);}
+  if(index===0){openSheet(null,null,true);}else{openSheet(null);}
 });
 document.getElementById('cancelBtn').addEventListener('click',closeSheet);
 document.getElementById('saveBtn').addEventListener('click',saveTask);
@@ -1715,7 +1827,7 @@ function saveCat(){
   closeCatSheet();          // close FIRST, unconditionally
   catSheet._editIdx=-1;
   if(isEdit){cats[editIdx].name=name;closeCatOptSheet();}
-  else{cats.push({id:uid(),name,tasks:[]});index=cats.length;}
+  else{cats.push({id:uid(),name,tasks:[]});index=userCats().length;}
   build();persist();
 }
 catBg.addEventListener('click',()=>{if(Date.now()-catOpenedAt<600)return;closeCatSheet();});
@@ -1726,7 +1838,7 @@ const catOptBg=document.getElementById('catOptBg'),catOptSheet=document.getEleme
 function closeCatOptSheet(){catOptBg.classList.remove('open');catOptSheet.classList.remove('open');}
 catOptBg.addEventListener('click',closeCatOptSheet);
 function showCatOptions(i){
-  const cat=cats[i];if(!cat)return;
+  const cat=cats[i];if(!cat||cat.builtin)return;  // can't manage built-in today category
   document.getElementById('catOptName').textContent=cat.name;
   const btns=document.getElementById('catOptBtns');btns.innerHTML='';
   const ren=document.createElement('button');ren.className='action-btn';ren.textContent='rename';ren.onclick=()=>{closeCatOptSheet();openCatSheet(i);};btns.appendChild(ren);
@@ -1734,10 +1846,10 @@ function showCatOptions(i){
     const rt=document.createElement('button');rt.className='action-btn';rt.textContent='reorder tasks';rt.onclick=()=>{closeCatOptSheet();openTaskReorderSheet(i);};btns.appendChild(rt);
   }
   const reord=document.createElement('button');reord.className='action-btn';reord.textContent='reorder categories';reord.onclick=()=>{closeCatOptSheet();openReorderSheet();};btns.appendChild(reord);
-  if(cats.length>1){
+  if(userCats().length>1){
     const del=document.createElement('button');del.className='action-btn action-del';
     del.textContent='delete category'+(cat.tasks.length?' ('+cat.tasks.length+' tasks)':'');
-    del.onclick=()=>{cat.tasks.forEach(t=>{if(activeTimers[t.id]){clearTimeout(activeTimers[t.id]);delete activeTimers[t.id];}});cats.splice(i,1);index=Math.max(0,Math.min(index,cats.length+1));persist();closeCatOptSheet();build();};
+    del.onclick=()=>{cat.tasks.forEach(t=>{if(activeTimers[t.id]){clearTimeout(activeTimers[t.id]);delete activeTimers[t.id];}});cats.splice(i,1);index=Math.max(0,Math.min(index,userCats().length+1));persist();closeCatOptSheet();build();};
     btns.appendChild(del);
   }
   catOptBg.classList.add('open');catOptSheet.classList.add('open');
@@ -1746,7 +1858,7 @@ function showCatOptions(i){
 const reorderBg=document.getElementById('reorderBg'),reorderSheet=document.getElementById('reorderSheet');
 let reorderDragInited=false;
 function openReorderSheet(){buildReorderList();if(!reorderDragInited){initReorderDrag(document.getElementById('reorderList'));reorderDragInited=true;}reorderBg.classList.add('open');reorderSheet.classList.add('open');}
-function closeReorderSheet(){reorderBg.classList.remove('open');reorderSheet.classList.remove('open');reorderSheet.style.bottom='';index=Math.max(0,Math.min(index,cats.length+1));build();}
+function closeReorderSheet(){reorderBg.classList.remove('open');reorderSheet.classList.remove('open');reorderSheet.style.bottom='';index=Math.max(0,Math.min(index,userCats().length+1));build();}
 reorderBg.addEventListener('click',closeReorderSheet);
 document.getElementById('reorderDoneBtn').addEventListener('click',closeReorderSheet);
 function buildReorderList(){
@@ -1945,7 +2057,7 @@ function dismissSplash(){
 /* ══ CLOCK + MIDNIGHT ══ */
 function tick(){const d=new Date(),h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0');document.getElementById('clock').textContent=h+':'+m;}
 setInterval(tick,10000);tick();
-function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{resetRecurring();updateKicker();[...Array(cats.length).keys()].forEach(i=>renderPanel(i));if(pager.children[0])renderOverviewPanel(pager.children[0]);schedMidnight();},next-now);}
+function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{resetRecurring();updateKicker();[...Array(userCats().length).keys()].forEach(i=>renderPanel(i));if(pager.children[0])renderOverviewPanel(pager.children[0]);schedMidnight();},next-now);}
 window.addEventListener('resize',()=>layout(true));
 schedMidnight();
 
