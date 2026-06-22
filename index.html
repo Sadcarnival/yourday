@@ -1007,14 +1007,23 @@ async function gcalRequest(path,method,body,token){
 }
 
 async function fetchGCalEvents(token){
-  const now=new Date(),later=new Date();later.setDate(later.getDate()+60);
+  // Use start of today (not current time) so all-day events for today aren't excluded
+  const todayStart=new Date();todayStart.setHours(0,0,0,0);
+  const later=new Date();later.setDate(later.getDate()+60);
   const data=await gcalRequest(
-    `/calendars/primary/events?timeMin=${encodeURIComponent(now.toISOString())}&timeMax=${encodeURIComponent(later.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=100`,
+    `/calendars/primary/events?timeMin=${encodeURIComponent(todayStart.toISOString())}&timeMax=${encodeURIComponent(later.toISOString())}&singleEvents=true&orderBy=startTime&maxResults=250`,
     'GET',null,token
   );
   gcalEvents={};
   (data.items||[]).forEach(ev=>{
-    const dateStr=ev.start.date||(ev.start.dateTime?ev.start.dateTime.slice(0,10):null);
+    // Use local date for timed events to avoid UTC vs local mismatch
+    let dateStr;
+    if(ev.start.date){
+      dateStr=ev.start.date; // all-day: already YYYY-MM-DD with no timezone issue
+    }else if(ev.start.dateTime){
+      const d=new Date(ev.start.dateTime);
+      dateStr=fmtDateKey(d); // use fmtDateKey which uses local time
+    }
     if(!dateStr)return;
     if(!gcalEvents[dateStr])gcalEvents[dateStr]=[];
     gcalEvents[dateStr].push({
@@ -1024,6 +1033,10 @@ async function fetchGCalEvents(token){
       allDay:!!ev.start.date,
     });
   });
+  // Redraw calendar dots and agenda to reflect new events
+  if(document.getElementById('ovCalWeek'))renderCalWeek();
+  if(document.getElementById('ovCalGrid'))renderCalMonthGrid();
+  if(document.getElementById('ovAgendaList'))renderAgenda();
 }
 
 async function syncTaskToGcal(task,existingEventId){
@@ -1231,6 +1244,8 @@ function sameDayAs(a,b){return fmtDateKey(a)===fmtDateKey(b);}
 function datesWithTasks(){
   const s=new Set();
   cats.forEach(c=>c.tasks.forEach(t=>{if(t.dueDate)s.add(t.dueDate);}));
+  // also mark days that have Google Calendar events
+  if(gcalEnabled)Object.keys(gcalEvents).forEach(k=>s.add(k));
   return s;
 }
 function tasksForDate(dateKey){
