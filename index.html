@@ -83,8 +83,21 @@
     transition:background .25s,color .25s;}
 
   /* ── status bar ── */
-  .statusbar{display:flex;justify-content:flex-end;align-items:center;gap:12px;
+  .statusbar{display:flex;justify-content:flex-end;align-items:center;gap:10px;
     padding:10px var(--pad) 0;font-size:13px;letter-spacing:.5px;color:var(--fg);min-height:30px;}
+  /* battery icon */
+  .battery-wrap{display:flex;align-items:center;gap:5px;}
+  .battery-pct{font-size:11px;letter-spacing:.3px;opacity:.8;}
+  .battery-icon{position:relative;width:22px;height:11px;border:1.5px solid currentColor;border-radius:2px;opacity:.85;}
+  .battery-icon::after{content:'';position:absolute;right:-4px;top:50%;transform:translateY(-50%);
+    width:2.5px;height:5px;background:currentColor;border-radius:0 1px 1px 0;}
+  .battery-fill{position:absolute;left:1px;top:1px;bottom:1px;border-radius:1px;
+    background:currentColor;transition:width .5s ease;}
+  .battery-icon.charging::before{content:'⚡';position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;font-size:7px;z-index:1;color:var(--fg);}
+  .battery-icon.low{color:#e05252;}
+  .battery-icon.medium{color:#e0a052;}
+  .battery-icon.high{color:var(--done-fg);}
 
   /* ── header ── */
   .kicker{padding:14px var(--pad) 0;font-size:13px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:var(--fg);opacity:.88;}
@@ -462,7 +475,13 @@
   </div>
 </div>
 
-<div class="statusbar"><span id="clock">7:50</span></div>
+<div class="statusbar">
+  <div class="battery-wrap" id="batteryWrap" style="display:none;">
+    <span class="battery-pct" id="batteryPct"></span>
+    <div class="battery-icon" id="batteryIcon"><div class="battery-fill" id="batteryFill"></div></div>
+  </div>
+  <span id="clock">7:50</span>
+</div>
 <div class="kicker" id="kicker">a glance at your day</div>
 <div class="kicker-date" id="kickerDate"></div>
 <div class="pivot"><div class="pivot-strip animate" id="strip"></div></div>
@@ -2072,6 +2091,31 @@ function dismissSplash(){
 /* ══ CLOCK + MIDNIGHT ══ */
 function tick(){const d=new Date(),h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0');document.getElementById('clock').textContent=h+':'+m;}
 setInterval(tick,10000);tick();
+
+/* ══ BATTERY STATUS ══ */
+function updateBatteryUI(bat){
+  const wrap=document.getElementById('batteryWrap');
+  const pct=document.getElementById('batteryPct');
+  const icon=document.getElementById('batteryIcon');
+  const fill=document.getElementById('batteryFill');
+  if(!wrap)return;
+  const level=Math.round(bat.level*100);
+  wrap.style.display='flex';
+  pct.textContent=level+'%';
+  fill.style.width=Math.max(1,level-2)+'%'; // -2 for padding inside icon
+  icon.classList.remove('low','medium','high','charging');
+  if(bat.charging)icon.classList.add('charging');
+  else if(level<=20)icon.classList.add('low');
+  else if(level<=50)icon.classList.add('medium');
+  else icon.classList.add('high');
+}
+if('getBattery'in navigator){
+  navigator.getBattery().then(bat=>{
+    updateBatteryUI(bat);
+    bat.addEventListener('levelchange',()=>updateBatteryUI(bat));
+    bat.addEventListener('chargingchange',()=>updateBatteryUI(bat));
+  }).catch(()=>{});
+}
 function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{resetRecurring();updateKicker();[...Array(userCats().length).keys()].forEach(i=>renderPanel(i));if(pager.children[0])renderOverviewPanel(pager.children[0]);schedMidnight();},next-now);}
 window.addEventListener('resize',()=>layout(true));
 schedMidnight();
