@@ -2124,7 +2124,26 @@ applyTheme(loadTheme());
 updateKicker();
 // Auth listener above handles everything else after Firebase resolves
 
-/* ══ SERVICE WORKER (required for Android installability / Play Store wrapping) ══ */
+/* ══ FULLSCREEN (hides Android system status bar at runtime) ══
+   Using JS Fullscreen API instead of manifest display:fullscreen
+   so PWABuilder can still generate the package using display:standalone. */
+function requestFullscreen(){
+  const el=document.documentElement;
+  const fn=el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen||el.msRequestFullscreen;
+  if(fn)fn.call(el).catch(()=>{});
+}
+// Request on first user interaction (browsers require a gesture)
+document.addEventListener('pointerdown',function onFirstTouch(){
+  requestFullscreen();
+  document.removeEventListener('pointerdown',onFirstTouch);
+},{once:true});
+// Re-request if user exits fullscreen (e.g. via back gesture)
+document.addEventListener('fullscreenchange',()=>{
+  if(!document.fullscreenElement)setTimeout(requestFullscreen,800);
+});
+document.addEventListener('webkitfullscreenchange',()=>{
+  if(!document.webkitFullscreenElement)setTimeout(requestFullscreen,800);
+});
 if('serviceWorker'in navigator){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('sw.js').catch(()=>{});
