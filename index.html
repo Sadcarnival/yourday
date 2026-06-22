@@ -391,11 +391,33 @@
   .google-btn{display:flex;align-items:center;gap:14px;width:100%;background:transparent;border:1.5px solid var(--fg);color:var(--fg);font-family:var(--font);font-size:14px;font-weight:400;letter-spacing:1.5px;text-transform:lowercase;padding:14px 20px;cursor:pointer;transition:background .15s;}
   .google-btn:active{background:var(--btn-active);}
   .google-btn svg{flex-shrink:0;}
+  .guest-btn{display:flex;align-items:center;justify-content:center;width:100%;background:transparent;border:none;color:var(--dim);font-family:var(--font);font-size:12px;font-weight:400;letter-spacing:1px;text-transform:lowercase;padding:14px 20px;cursor:pointer;margin-top:6px;}
+  .guest-btn:active{opacity:.6;}
   /* loading spinner */
   .splash-loading{display:none;font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--dim);}
   .splash-loading.show{display:block;}
   @keyframes pulse{0%,100%{opacity:.3}50%{opacity:.8}}
   .splash-loading{animation:pulse 1.4s ease infinite;}
+
+  /* ── metro app bar icon buttons ── */
+  .appbar-icon-btn{
+    width:34px;height:34px;border-radius:50%;border:1.5px solid var(--dim);
+    background:transparent;color:var(--fg);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .2s,background .15s;flex-shrink:0;
+  }
+  .appbar-icon-btn:active{background:var(--btn-active);}
+  .appbar-icon-btn svg{width:15px;height:15px;stroke:var(--fg);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .appbar-icon-btn.spinning svg{animation:spinIcon .8s linear infinite;}
+  @keyframes spinIcon{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+  .appbar-icon-btn.gcal-on{border-color:var(--done-fg);}
+  .appbar-icon-btn.gcal-on svg{stroke:var(--done-fg);}
+
+  /* ── Google Calendar events in agenda ── */
+  .gcal-event{padding:12px 0;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid rgba(255,255,255,.04);}
+  .gcal-event .cat-tag{color:#4285F4;}
+  .gcal-event .t-title{font-size:20px;}
+  .gcal-event .t-meta{font-size:11px;color:var(--dim);margin-top:3px;}
 </style>
 </head>
 <body>
@@ -423,6 +445,7 @@
         </svg>
         sign in with google
       </button>
+      <button class="guest-btn" id="guestModeBtn">continue without signing in →</button>
       <div class="splash-error" id="splashError"></div>
     </div>
   </div>
@@ -439,6 +462,18 @@
     <button class="themebtn" id="themeBtn" aria-label="change theme"><span class="theme-disc" id="themeDisc"></span></button>
     <button class="user-btn" id="userBtn" aria-label="account"></button>
     <span class="sync-dot" id="syncDot"></span>
+    <!-- sync button -->
+    <button class="appbar-icon-btn" id="syncBtn" aria-label="sync now" title="sync now">
+      <svg viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+    </button>
+    <!-- backup/restore button -->
+    <button class="appbar-icon-btn" id="backupBtn" aria-label="backup and restore" title="backup / restore">
+      <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <!-- Google Calendar button -->
+    <button class="appbar-icon-btn" id="gcalBtn" aria-label="Google Calendar" title="Google Calendar">
+      <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    </button>
   </div>
   <button class="addbtn" id="addBtn" aria-label="add task">+</button>
 </div>
@@ -541,16 +576,33 @@
 <div class="sheet-bg" id="accountBg"></div>
 <div class="sheet" id="accountSheet">
   <h2>account</h2>
-  <div class="acct-row">
-    <div class="acct-avatar" id="acctAvatar"></div>
-    <div class="acct-info">
-      <div class="acct-name" id="acctName"></div>
-      <div class="acct-email" id="acctEmail"></div>
+  <div id="acctSignedIn">
+    <div class="acct-row">
+      <div class="acct-avatar" id="acctAvatar"></div>
+      <div class="acct-info">
+        <div class="acct-name" id="acctName"></div>
+        <div class="acct-email" id="acctEmail"></div>
+      </div>
+    </div>
+    <div class="acct-sync" id="acctSync">syncing across all your devices</div>
+    <div class="sheet-actions" style="margin-top:18px;">
+      <button id="signOutBtn">sign out</button>
     </div>
   </div>
-  <div class="acct-sync" id="acctSync">syncing across all your devices</div>
-  <div class="sheet-actions" style="margin-top:18px;">
-    <button id="signOutBtn">sign out</button>
+  <div id="acctGuest" style="display:none;">
+    <div style="font-size:15px;font-weight:300;color:var(--dim);margin-bottom:18px;line-height:1.6;">
+      you're in offline mode.<br>your tasks are saved on this device only.
+    </div>
+    <button class="google-btn" id="guestSignInBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57C21.36 18.3 22.56 15.48 22.56 12.25z" fill="#4285F4"/>
+        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/>
+        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      </svg>
+      sign in &amp; enable cloud sync
+    </button>
+    <p style="font-size:11px;color:var(--dim);margin-top:12px;line-height:1.5;">your existing tasks will be uploaded to your account.</p>
   </div>
 </div>
 
@@ -583,6 +635,29 @@
   <h2 id="taskReorderTitle">hold &amp; drag to reorder</h2>
   <div id="taskReorderList"></div>
   <div class="sheet-actions" style="margin-top:18px;"><button id="taskReorderDoneBtn" class="primary">done</button></div>
+</div>
+
+<!-- backup / restore sheet -->
+<div class="sheet-bg" id="backupBg"></div>
+<div class="sheet" id="backupSheet">
+  <h2>backup &amp; restore</h2>
+  <div class="sheet-section">
+    <div class="sheet-label">local backup</div>
+    <p style="font-size:13px;color:var(--dim);margin-bottom:14px;line-height:1.6;">download your tasks as a JSON file you can store anywhere.</p>
+    <button class="primary" id="backupDownloadBtn">download backup</button>
+  </div>
+  <div class="sheet-section" style="margin-top:22px;">
+    <div class="sheet-label">restore from backup</div>
+    <p style="font-size:13px;color:var(--dim);margin-bottom:14px;line-height:1.6;">load a previously downloaded backup file. this replaces your current tasks.</p>
+    <label class="primary" id="backupRestoreLabel" style="display:flex;align-items:center;justify-content:center;cursor:pointer;">
+      choose backup file
+      <input type="file" id="backupFileInput" accept=".json" style="display:none;">
+    </label>
+    <div id="backupRestoreStatus" style="font-size:12px;color:var(--done-fg);margin-top:10px;min-height:18px;"></div>
+  </div>
+  <div class="sheet-actions" style="margin-top:24px;">
+    <button class="secondary" id="backupCloseBtn">close</button>
+  </div>
 </div>
 
 <script>
@@ -725,26 +800,31 @@ function makeSeed(){
 }
 let cats=[],index=0;
 const KEY='yourday:data';
+let guestMode=false;
+
+/* ── LOCAL STORAGE helpers (used by both guest and signed-in) ── */
+function saveLocal(){try{localStorage.setItem(KEY,JSON.stringify(cats));}catch(_){}}
+function loadLocal(){try{const d=localStorage.getItem(KEY);return d?JSON.parse(d):null;}catch(_){return null;}}
 
 /* Firestore load */
 async function load(){
-  if(!currentUser)return null;
+  if(!currentUser)return loadLocal();
   try{
     const snap=await db.collection('users').doc(currentUser.uid).get();
     if(snap.exists){
       const d=snap.data();
-      // also restore theme from cloud on first visit to a new device
       if(d.theme&&THEMES[d.theme]&&!localStorage.getItem(TKEY)){applyTheme(d.theme);}
       return d.cats?JSON.parse(d.cats):null;
     }
   }catch(e){console.warn('Load error:',e);}
-  return null;
+  return loadLocal();
 }
 
 /* Firestore persist — debounced 1.5 s to avoid hammering writes */
 let persistTimer=null;
 function persist(){
-  if(!currentUser)return;
+  saveLocal(); // always write to localStorage first (works offline + guest)
+  if(!currentUser||guestMode){showSync(false);return;}
   showSync(true);
   clearTimeout(persistTimer);
   persistTimer=setTimeout(async()=>{
@@ -760,7 +840,7 @@ function persist(){
   },1500);
 }
 function persistTheme(){
-  if(!currentUser)return;
+  if(!currentUser||guestMode)return;
   db.collection('users').doc(currentUser.uid).set({theme:currentTheme},{merge:true}).catch(()=>{});
 }
 
@@ -774,9 +854,9 @@ function showSync(on){
 let unsubListen=null;
 function subscribeToChanges(){
   if(unsubListen)unsubListen();
+  if(!currentUser||guestMode)return;
   unsubListen=db.collection('users').doc(currentUser.uid)
     .onSnapshot(snap=>{
-      // hasPendingWrites = we caused this update, skip to avoid loop
       if(!snap.exists||snap.metadata.hasPendingWrites)return;
       const d=snap.data();
       if(!d||!d.cats)return;
@@ -784,11 +864,142 @@ function subscribeToChanges(){
         const remote=JSON.parse(d.cats);
         if(JSON.stringify(remote)!==JSON.stringify(cats)){
           cats=migrateData(remote);
-          build(); // re-render with remote data
-          showToast('your day','synced from another device');
+          build();
+          showToast('your day','⟲ synced from another device');
         }
       }catch(e){}
     },()=>{});
+}
+
+/* ══ SYNC BUTTON ══ */
+document.getElementById('syncBtn').addEventListener('click',async()=>{
+  if(guestMode){showToast('your day','sign in to enable cloud sync');return;}
+  if(!currentUser){showToast('your day','not signed in');return;}
+  const btn=document.getElementById('syncBtn');
+  btn.classList.add('spinning');
+  try{
+    await db.collection('users').doc(currentUser.uid).set({
+      cats:JSON.stringify(cats),name:getUserName(),theme:currentTheme,
+      updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+    },{merge:true});
+    showToast('your day','✓ synced');
+  }catch(e){showToast('your day','sync failed — check connection');}
+  btn.classList.remove('spinning');
+});
+
+/* ══ BACKUP / RESTORE ══ */
+const backupBg=document.getElementById('backupBg'),backupSheet=document.getElementById('backupSheet');
+let backupOpenedAt=0;
+function openBackupSheet(){backupBg.classList.add('open');backupSheet.classList.add('open');backupOpenedAt=Date.now();document.getElementById('backupRestoreStatus').textContent='';}
+function closeBackupSheet(){backupBg.classList.remove('open');backupSheet.classList.remove('open');backupSheet.style.bottom='';}
+backupBg.addEventListener('click',()=>{if(Date.now()-backupOpenedAt<400)return;closeBackupSheet();});
+document.getElementById('backupBtn').addEventListener('click',openBackupSheet);
+document.getElementById('backupCloseBtn').addEventListener('click',closeBackupSheet);
+document.getElementById('backupDownloadBtn').addEventListener('click',()=>{
+  const payload={version:1,exportedAt:new Date().toISOString(),cats};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');a.href=url;
+  a.download='yourday-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();URL.revokeObjectURL(url);
+  showToast('backup','✓ backup downloaded');
+});
+document.getElementById('backupFileInput').addEventListener('change',async e=>{
+  const file=e.target.files[0];if(!file)return;
+  const statusEl=document.getElementById('backupRestoreStatus');
+  try{
+    const text=await file.text();
+    const payload=JSON.parse(text);
+    const data=payload.cats||payload; // support both wrapped and raw formats
+    if(!Array.isArray(data))throw new Error('invalid format');
+    cats=migrateData(data);
+    build();persist();
+    statusEl.textContent='✓ restored '+data.length+' categories successfully';
+    showToast('backup','✓ backup restored');
+  }catch(err){
+    statusEl.style.color='#c45f5f';
+    statusEl.textContent='could not read that file — is it a valid yourday backup?';
+  }
+  e.target.value=''; // reset so same file can be reloaded if needed
+});
+
+/* ══ GUEST MODE ══ */
+document.getElementById('guestModeBtn').addEventListener('click',()=>{
+  guestMode=true;
+  localStorage.setItem('yourday:guest','1');
+  const saved=loadLocal();
+  cats=migrateData(saved&&Array.isArray(saved)&&saved.length?saved:makeSeed());
+  resetRecurring();build();scheduleReminders();
+  document.getElementById('syncBtn').title='sign in to sync';
+  document.getElementById('gcalBtn').style.display='none';
+  dismissSplash();
+  showToast('your day','offline mode — data saved locally');
+});
+
+/* ══ GOOGLE CALENDAR ══ */
+/* ─────────────────────────────────────────────────────────────────────────
+   To enable Google Calendar integration you need to:
+   1. Go to console.cloud.google.com → your Firebase project (yourday-adfa1)
+   2. Enable the "Google Calendar API"
+   3. Under OAuth consent screen → Scopes → add:
+      https://www.googleapis.com/auth/calendar.readonly
+   4. That's it — the existing Google Sign-In flow handles the OAuth token.
+   ───────────────────────────────────────────────────────────────────────── */
+const GCAL_SCOPE='https://www.googleapis.com/auth/calendar.readonly';
+let gcalEnabled=false,gcalEvents={};
+
+document.getElementById('gcalBtn').addEventListener('click',async()=>{
+  if(guestMode){showToast('calendar','sign in to connect Google Calendar');return;}
+  if(!currentUser){showToast('calendar','sign in first');return;}
+  if(gcalEnabled){
+    // toggle off
+    gcalEnabled=false;gcalEvents={};
+    document.getElementById('gcalBtn').classList.remove('gcal-on');
+    if(pager.children[0])renderOverviewPanel(pager.children[0]);
+    showToast('calendar','Google Calendar disconnected');return;
+  }
+  // request calendar scope
+  const provider=new firebase.auth.GoogleAuthProvider();
+  provider.addScope(GCAL_SCOPE);
+  try{
+    const result=await auth.currentUser.reauthenticateWithPopup(provider);
+    const token=result.credential.accessToken;
+    await fetchGCalEvents(token);
+    gcalEnabled=true;
+    document.getElementById('gcalBtn').classList.add('gcal-on');
+    if(pager.children[0])renderOverviewPanel(pager.children[0]);
+    showToast('calendar','✓ Google Calendar connected');
+  }catch(e){
+    if(e.code==='auth/popup-closed-by-user')return;
+    if(e.message&&e.message.includes('scope')){
+      showToast('calendar','enable Calendar API in Google Cloud Console first');
+    }else{
+      showToast('calendar','could not connect Google Calendar');
+    }
+    console.warn('GCal error:',e);
+  }
+});
+
+async function fetchGCalEvents(token){
+  const now=new Date(),later=new Date();later.setDate(later.getDate()+30);
+  const url=`https://www.googleapis.com/calendar/v3/calendars/primary/events?`+
+    `timeMin=${encodeURIComponent(now.toISOString())}&`+
+    `timeMax=${encodeURIComponent(later.toISOString())}&`+
+    `singleEvents=true&orderBy=startTime&maxResults=50`;
+  const res=await fetch(url,{headers:{Authorization:'Bearer '+token}});
+  if(!res.ok)throw new Error('Calendar API returned '+res.status);
+  const data=await res.json();
+  gcalEvents={};
+  (data.items||[]).forEach(ev=>{
+    const dateStr=ev.start.date||(ev.start.dateTime?ev.start.dateTime.slice(0,10):null);
+    if(!dateStr)return;
+    if(!gcalEvents[dateStr])gcalEvents[dateStr]=[];
+    gcalEvents[dateStr].push({
+      title:ev.summary||'(no title)',
+      time:ev.start.dateTime?new Date(ev.start.dateTime).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):null,
+      allDay:!!ev.start.date,
+    });
+  });
 }
 
 function migrateData(data){data.forEach(cat=>cat.tasks.forEach(t=>{t.note=normalizeNote(t.note);if(typeof t.indent!=='number')t.indent=0;if(t.dueDate===undefined)t.dueDate=null;}));return data;}
@@ -1061,6 +1272,19 @@ function renderAgenda(){
     el.querySelector('.task-body').addEventListener('click',()=>openSheet(task));
     list.appendChild(el);
   });
+
+  // Google Calendar events for this day
+  if(gcalEnabled&&gcalEvents[calSelectedDate]){
+    gcalEvents[calSelectedDate].forEach(ev=>{
+      const el=document.createElement('div');el.className='gcal-event';
+      el.innerHTML=`<div class="task-body">
+          <div class="cat-tag">google calendar</div>
+          <div class="t-title">${ev.title}</div>
+          ${ev.time?`<div class="t-meta">${ev.time}</div>`:''}
+        </div>`;
+      list.appendChild(el);
+    });
+  }
   const addRow=document.createElement('div');
   addRow.className='add-for-day';
   addRow.innerHTML=`<span class="plus-circle">+</span> add a task for ${label==='today'?'today':label}`;
@@ -1611,14 +1835,40 @@ function initTaskReorderDrag(list){
   list.addEventListener('pointerup',drop);list.addEventListener('pointercancel',drop);
 }
 const accountBg=document.getElementById('accountBg'),accountSheet=document.getElementById('accountSheet');
-function openAccountSheet(){accountBg.classList.add('open');accountSheet.classList.add('open');}
+function openAccountSheet(){
+  document.getElementById('acctSignedIn').style.display=guestMode?'none':'block';
+  document.getElementById('acctGuest').style.display=guestMode?'block':'none';
+  accountBg.classList.add('open');accountSheet.classList.add('open');
+}
 function closeAccountSheet(){accountBg.classList.remove('open');accountSheet.classList.remove('open');}
 accountBg.addEventListener('click',closeAccountSheet);
 document.getElementById('userBtn').addEventListener('click',openAccountSheet);
 document.getElementById('signOutBtn').addEventListener('click',()=>{
   closeAccountSheet();
   if(unsubListen){unsubListen();unsubListen=null;}
+  localStorage.removeItem('yourday:guest');
   auth.signOut().then(()=>location.reload()).catch(()=>location.reload());
+});
+// guest → sign in, uploading existing local tasks to cloud
+document.getElementById('guestSignInBtn').addEventListener('click',async()=>{
+  const provider=new firebase.auth.GoogleAuthProvider();
+  try{
+    const result=await auth.signInWithPopup(provider);
+    const user=result.user;
+    currentUser=user;guestMode=false;
+    localStorage.removeItem('yourday:guest');
+    await db.collection('users').doc(user.uid).set({
+      cats:JSON.stringify(cats),name:getUserName(),theme:currentTheme,
+      updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+    },{merge:true});
+    updateUserAvatar(user);
+    subscribeToChanges();
+    closeAccountSheet();
+    document.getElementById('gcalBtn').style.display='';
+    showToast('your day','✓ signed in — tasks uploaded');
+  }catch(e){
+    if(e.code!=='auth/popup-closed-by-user')showToast('your day','sign in failed');
+  }
 });
 
 /* ══ AUTH ══ */
@@ -1649,7 +1899,8 @@ auth.onAuthStateChanged(async user=>{
   document.getElementById('splashLoading').classList.remove('show');
 
   if(user){
-    // Signed in — load data and launch the app
+    // Signed in — cloud sync mode
+    guestMode=false;
     updateUserAvatar(user);
     if(!getUserName()&&user.displayName){setUserName(user.displayName.split(' ')[0]);}
     updateKicker();
@@ -1658,8 +1909,16 @@ auth.onAuthStateChanged(async user=>{
     resetRecurring();build();scheduleReminders();
     subscribeToChanges();
     dismissSplash();
+  }else if(localStorage.getItem('yourday:guest')==='1'){
+    // returning guest — skip sign-in screen
+    guestMode=true;
+    const saved=loadLocal();
+    cats=migrateData(saved&&Array.isArray(saved)&&saved.length?saved:makeSeed());
+    resetRecurring();build();scheduleReminders();
+    document.getElementById('gcalBtn').style.display='none';
+    dismissSplash();
   }else{
-    // Not signed in — show Google button
+    // Not signed in — show sign-in screen
     document.getElementById('splashSignIn').classList.add('show');
   }
 });
