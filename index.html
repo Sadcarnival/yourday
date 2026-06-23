@@ -80,15 +80,12 @@
   html{height:100%;overflow:hidden;}
   body{position:fixed;inset:0;background:var(--bg);color:var(--fg);font-family:var(--font);overflow:hidden;
     display:flex;flex-direction:column;-webkit-font-smoothing:antialiased;user-select:none;
-    transition:background .25s,color .25s;
-    padding-top:env(safe-area-inset-top);
-    padding-left:env(safe-area-inset-left);
-    padding-right:env(safe-area-inset-right);
-    padding-bottom:env(safe-area-inset-bottom);}
+    transition:background .25s,color .25s;}
 
   /* ── status bar ── */
   .statusbar{display:flex;justify-content:flex-end;align-items:center;gap:10px;
-    padding:10px var(--pad) 0;font-size:13px;letter-spacing:.5px;color:var(--fg);min-height:30px;}
+    padding:env(safe-area-inset-top, 10px) var(--pad) 0;
+    font-size:13px;letter-spacing:.5px;color:var(--fg);min-height:30px;}
   /* battery icon */
   .battery-wrap{display:flex;align-items:center;gap:5px;}
   .battery-pct{font-size:11px;letter-spacing:.3px;opacity:.8;}
@@ -232,7 +229,9 @@
 
 
   /* ── app bar ── */
-  .appbar{position:fixed;left:0;right:0;bottom:0;height:74px;background:var(--bg);
+  .appbar{position:fixed;left:0;right:0;bottom:0;
+    padding-bottom:env(safe-area-inset-bottom, 0px);
+    height:calc(74px + env(safe-area-inset-bottom, 0px));background:var(--bg);
     display:flex;align-items:center;justify-content:space-between;padding:0 var(--pad);
     border-top:1px solid var(--border);transition:background .25s,border-color .25s;gap:12px;}
   .appbar-left{display:flex;align-items:center;gap:10px;}
