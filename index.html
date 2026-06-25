@@ -1315,7 +1315,6 @@ function renderTodaySection(){
   const el=document.getElementById('ovTodaySection');if(!el)return;
   const tc=todayCat();el.innerHTML='';
   if(!tc.tasks.length){
-    // show a subtle add-prompt if no today tasks yet
     const add=document.createElement('div');add.className='add-for-day';
     add.innerHTML='<span class="plus-circle">+</span> add a task for today';
     add.addEventListener('click',()=>openSheet(null,null,true));
@@ -1330,8 +1329,41 @@ function renderTodaySection(){
     row.innerHTML=`<div class="tt">${task.text}</div><div class="chk">${task.done?'✓':''}</div>`;
     row.querySelector('.tt').addEventListener('click',()=>openSheet(task));
     row.querySelector('.chk').addEventListener('click',e=>{e.stopPropagation();toggleTaskById(task.id);});
+    // long-press → delete action sheet
+    let lpTimer=null,lpFired=false,startY=0,moved=false;
+    row.addEventListener('touchstart',e=>{
+      startY=e.touches[0].clientY;moved=false;lpFired=false;
+      lpTimer=setTimeout(()=>{
+        lpTimer=null;lpFired=true;
+        if(navigator.vibrate)try{navigator.vibrate(15);}catch(_){}
+        showTodayTaskOptions(task);
+      },480);
+    },{passive:true});
+    row.addEventListener('touchmove',e=>{
+      if(Math.abs(e.touches[0].clientY-startY)>10){moved=true;if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}}
+    },{passive:true});
+    row.addEventListener('touchend',()=>{if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}},{passive:true});
+    row.addEventListener('touchcancel',()=>{if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}},{passive:true});
     el.appendChild(row);
   });
+}
+
+function showTodayTaskOptions(task){
+  // reuse the cat-opt sheet pattern for a simple action sheet
+  const bg=document.getElementById('catOptBg'),sheet=document.getElementById('catOptSheet');
+  document.getElementById('catOptName').textContent=task.text;
+  const btns=document.getElementById('catOptBtns');btns.innerHTML='';
+  const editBtn=document.createElement('button');editBtn.className='action-btn';editBtn.textContent='edit';
+  editBtn.onclick=()=>{closeCatOptSheet();openSheet(task);};btns.appendChild(editBtn);
+  const doneBtn=document.createElement('button');doneBtn.className='action-btn';
+  doneBtn.textContent=task.done?'mark as not done':'mark as done';
+  doneBtn.onclick=()=>{closeCatOptSheet();toggleTaskById(task.id);};btns.appendChild(doneBtn);
+  const delBtn=document.createElement('button');delBtn.className='action-btn action-del';delBtn.textContent='delete';
+  delBtn.onclick=()=>{
+    const tc=todayCat();tc.tasks=tc.tasks.filter(t=>t.id!==task.id);
+    persist();closeCatOptSheet();renderTodaySection();
+  };btns.appendChild(delBtn);
+  bg.classList.add('open');sheet.classList.add('open');
 }
 
 function renderCalWeek(){
@@ -1622,7 +1654,7 @@ strip.addEventListener('touchstart',e=>{
     pvLong=setTimeout(()=>{
       pvLong=null;pvLongFired=true;
       if(navigator.vibrate)try{navigator.vibrate(15);}catch(_){}
-      showCatOptions(pvTitleIdx-1);   // convert panel index → cats[] array index
+      showCatOptions(cats.indexOf(userCats()[pvTitleIdx-1]));   // panel index → cats[] index (skips __today__)
     },480);
   }
 },{passive:true});
@@ -1991,43 +2023,67 @@ function openAccountSheet(){
 }
 function closeAccountSheet(){accountBg.classList.remove('open');accountSheet.classList.remove('open');}
 accountBg.addEventListener('click',closeAccountSheet);
-document.getElementById('userBtn').addEventListener('click',openAccountSheet);
+document.getElementById('userBtn').addEventListener('click',()=>{
+  if(currentUser)openAccountSheet();
+  else signInWithGoogle(); // not signed in → trigger sign in directly
+});
 document.getElementById('signOutBtn').addEventListener('click',()=>{
   closeAccountSheet();
   if(unsubListen){unsubListen();unsubListen=null;}
   localStorage.removeItem('yourday:guest');
-  auth.signOut().then(()=>location.reload()).catch(()=>location.reload());
+  guestMode=false;currentUser=null;
+  auth.signOut().then(()=>showSignInScreen()).catch(()=>showSignInScreen());
 });
 // guest → sign in, uploading existing local tasks to cloud
-document.getElementById('guestSignInBtn').addEventListener('click',async()=>{
+document.getElementById('guestSignInBtn').addEventListener('click',()=>signInWithGoogle(true));
+
+async function signInWithGoogle(uploadLocal){
   const provider=new firebase.auth.GoogleAuthProvider();
   try{
     const result=await auth.signInWithPopup(provider);
     const user=result.user;
     currentUser=user;guestMode=false;
     localStorage.removeItem('yourday:guest');
-    await db.collection('users').doc(user.uid).set({
-      cats:JSON.stringify(cats),name:getUserName(),theme:currentTheme,
-      updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
-    },{merge:true});
-    updateUserAvatar(user);
-    subscribeToChanges();
-    closeAccountSheet();
+    if(uploadLocal){
+      await db.collection('users').doc(user.uid).set({
+        cats:JSON.stringify(cats),name:getUserName(),theme:currentTheme,
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+      },{merge:true});
+    }else{
+      // load existing cloud data
+      const saved=await load();
+      if(saved&&Array.isArray(saved)&&saved.length){cats=migrateData(saved);build();}
+    }
+    updateUserAvatar(user);subscribeToChanges();
+    closeAccountSheet();dismissSplash();
     document.getElementById('gcalBtn').style.display='';
-    showToast('your day','✓ signed in — tasks uploaded');
+    showToast('your day','✓ signed in');
   }catch(e){
     if(e.code!=='auth/popup-closed-by-user')showToast('your day','sign in failed');
   }
-});
+}
 
 /* ══ AUTH ══ */
 function updateUserAvatar(user){
   const btn=document.getElementById('userBtn');
-  const initial=(user.displayName||user.email||'?')[0].toUpperCase();
-  btn.textContent=initial;btn.classList.add('visible');
-  document.getElementById('acctAvatar').textContent=initial;
-  document.getElementById('acctName').textContent=user.displayName||'';
-  document.getElementById('acctEmail').textContent=user.email||'';
+  btn.classList.add('visible');
+  if(user){
+    const initial=(user.displayName||user.email||'?')[0].toUpperCase();
+    btn.textContent=initial;btn.title='account';
+    document.getElementById('acctAvatar').textContent=initial;
+    document.getElementById('acctName').textContent=user.displayName||'';
+    document.getElementById('acctEmail').textContent=user.email||'';
+  }else{
+    btn.textContent='⟩';btn.title='sign in';
+  }
+}
+function showSignInScreen(){
+  const splash=document.getElementById('splash');
+  splash.style.cssText='';   // restore original display
+  splash.classList.remove('hidden');
+  document.getElementById('splashLoading').classList.remove('show');
+  document.getElementById('splashSignIn').classList.add('show');
+  updateUserAvatar(null);
 }
 
 // Google sign-in
