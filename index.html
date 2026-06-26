@@ -747,12 +747,21 @@ const db   = firebase.firestore();
 db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
 let currentUser = null;
-// preventAutoSignIn persisted in sessionStorage so it survives TWA page navigations/reloads
-// without it, Firebase auto-re-auths the user immediately after sign-out
-const NOAUTH_KEY='yd_no_auto_auth';
-function getPreventAutoSignIn(){return sessionStorage.getItem(NOAUTH_KEY)==='1';}
-function setPreventAutoSignIn(v){v?sessionStorage.setItem(NOAUTH_KEY,'1'):sessionStorage.removeItem(NOAUTH_KEY);}
-let preventAutoSignIn=getPreventAutoSignIn();
+// Track explicit sign-out with a timestamp in localStorage
+// Only block auto-signin for 30 minutes after sign-out, then allow normal auth again
+const SIGNOUT_KEY='yd_signout_ts';
+function setSignedOutMode(){localStorage.setItem(SIGNOUT_KEY,Date.now().toString());}
+function clearSignedOutMode(){localStorage.removeItem(SIGNOUT_KEY);}
+function isSignedOutMode(){
+  const t=localStorage.getItem(SIGNOUT_KEY);
+  if(!t)return false;
+  if(Date.now()-parseInt(t)>1800000){localStorage.removeItem(SIGNOUT_KEY);return false;} // 30 min expiry
+  return true;
+}
+// Legacy cleanup — remove old sessionStorage keys from previous version
+try{sessionStorage.removeItem('yd_no_auto_auth');sessionStorage.removeItem('yd_signing_in');sessionStorage.removeItem('yd_signin_upload');}catch(_){}
+// Keep preventAutoSignIn as in-memory only (not persisted across sessions)
+let preventAutoSignIn=isSignedOutMode();
 
 /* ══ THEMES ══ */
 const THEMES={
@@ -1641,14 +1650,4 @@ function attachTaskSwipe(el,bgR,bgL,task){
         task.indent--;
         el.className=el.className.replace(/\bindent-\d\b/g,'').replace(/\s+/g,' ').trim();
         if(task.indent)el.className+=' indent-'+task.indent;
-        flashTask(el,'p');showToast('your day','↱ promoted'+(task.indent===0?' to main task':' to level '+task.indent));persist();
-      }
-    }else if(!lpFired&&Math.abs(dx)<9&&Math.abs(dy)<9){
-      // stationary tap → suppress the synthesized ghost click, then activate
-      if(e&&e.cancelable)e.preventDefault();
-      activateTask(el,startTarget);
-    }
-    swiping=false;decided=false;
-  }
-  el.addEventListener('touchend',end,{passive:false});
-  el.addEventListener('touchcancel',()=>{clearLP();bgR.style.
+        flashTask(el,'p');showToast('your day','↱ promoted'+(tas
