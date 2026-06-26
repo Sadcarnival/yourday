@@ -1650,4 +1650,733 @@ function attachTaskSwipe(el,bgR,bgL,task){
         task.indent--;
         el.className=el.className.replace(/\bindent-\d\b/g,'').replace(/\s+/g,' ').trim();
         if(task.indent)el.className+=' indent-'+task.indent;
-        flashTask(el,'p');showToast('your day','↱ promoted'+(tas
+        flashTask(el,'p');showToast('your day','↱ promoted'+(task.indent===0?' to main task':' to level '+task.indent));persist();
+      }
+    }else if(!lpFired&&Math.abs(dx)<9&&Math.abs(dy)<9){
+      // stationary tap → suppress the synthesized ghost click, then activate
+      if(e&&e.cancelable)e.preventDefault();
+      activateTask(el,startTarget);
+    }
+    swiping=false;decided=false;
+  }
+  el.addEventListener('touchend',end,{passive:false});
+  el.addEventListener('touchcancel',()=>{clearLP();bgR.style.opacity=0;bgL.style.opacity=0;el.classList.add('task-sw-anim');el.style.transform='';swiping=false;decided=false;},{passive:true});
+}
+function flashTask(el,dir){el.classList.add('flash-'+dir);setTimeout(()=>el.classList.remove('flash-'+dir),480);}
+
+/* ══ PIVOT LAYOUT ══ */
+let titleOffsets=[],W=window.innerWidth;const PADL=26;
+function measure(){W=window.innerWidth;titleOffsets=[...strip.children].map(el=>el.offsetLeft);}
+function titleTranslateFor(f){const lo=Math.max(0,Math.floor(f)),hi=Math.min(userCats().length+1,Math.ceil(f)),fr=f-lo;return PADL-(titleOffsets[lo]+(titleOffsets[hi]-titleOffsets[lo])*fr);}
+function applyFloat(f){
+  f=Math.max(0,Math.min(userCats().length+1,f));
+  pager.style.transform=`translateX(${-f*W}px)`;
+  strip.style.transform=`translateX(${titleTranslateFor(f)}px)`;
+  [...strip.children].forEach((el,i)=>{const d=Math.min(1,Math.abs(i-f));el.style.opacity=(1-d*0.74).toFixed(3);});
+}
+function layout(instant){
+  measure();
+  if(instant){pager.classList.remove('animate');strip.classList.remove('animate');}
+  applyFloat(index);
+  if(instant){void pager.offsetWidth;pager.classList.add('animate');strip.classList.add('animate');}
+}
+function goTo(i){index=Math.max(0,Math.min(userCats().length+1,i));pager.classList.add('animate');strip.classList.add('animate');applyFloat(index);}
+
+/* ══ SELECTION MODE ══ */
+let selectionMode=false,selectedIds=new Set();
+function enterSelectionMode(taskId){
+  selectionMode=true;selectedIds.clear();selectedIds.add(taskId);
+  document.body.classList.add('sel-mode');
+  document.getElementById('selBar').classList.add('active');
+  updateSelectionUI();renderPanel(index);
+}
+function exitSelectionMode(){
+  selectionMode=false;selectedIds.clear();
+  document.body.classList.remove('sel-mode');
+  document.getElementById('selBar').classList.remove('active');
+  renderPanel(index);
+}
+function toggleTaskSelection(taskId){
+  if(selectedIds.has(taskId))selectedIds.delete(taskId);else selectedIds.add(taskId);
+  updateSelectionUI();
+  const taskEl=[...pager.children[index].querySelectorAll('.task')].find(el=>el.dataset.id===taskId);
+  if(taskEl)taskEl.classList.toggle('task-sel-on',selectedIds.has(taskId));
+}
+function updateSelectionUI(){
+  document.getElementById('selCount').textContent=selectedIds.size+' selected';
+  document.getElementById('selEditWrap').style.display=selectedIds.size===1?'flex':'none';
+}
+document.getElementById('selEditBtn').addEventListener('click',()=>{
+  if(selectedIds.size!==1)return;
+  const id=[...selectedIds][0];
+  const cc=curCat();const t=cc?cc.tasks.find(t=>t.id===id):null;
+  exitSelectionMode();
+  if(t)openSheet(t);
+});
+document.getElementById('selDoneBtn').addEventListener('click',()=>{const cc=curCat();if(cc)selectedIds.forEach(id=>{const t=cc.tasks.find(t=>t.id===id);if(t&&!t.done){t.done=true;t.completedAt=Date.now();}});persist();exitSelectionMode();});
+document.getElementById('selUndoneBtn').addEventListener('click',()=>{const cc=curCat();if(cc)selectedIds.forEach(id=>{const t=cc.tasks.find(t=>t.id===id);if(t&&t.done){t.done=false;t.completedAt=null;}});persist();exitSelectionMode();});
+document.getElementById('selShareBtn').addEventListener('click',()=>{
+  const cc=curCat();const lines=cc?cc.tasks.filter(t=>selectedIds.has(t.id)).map(t=>t.text):[];
+  navigator.clipboard&&navigator.clipboard.writeText(lines.join('\n')).then(()=>showToast('copied',lines.length+' task'+(lines.length!==1?'s':'')+' copied')).catch(()=>{});
+  exitSelectionMode();
+});
+document.getElementById('selDelBtn').addEventListener('click',()=>{
+  if(!selectedIds.size)return;
+  if(!confirm('delete '+selectedIds.size+' task'+(selectedIds.size!==1?'s':'')+'?'))return;
+  selectedIds.forEach(id=>{if(activeTimers[id]){clearTimeout(activeTimers[id]);delete activeTimers[id];}});
+  const cc=curCat();if(cc)cc.tasks=cc.tasks.filter(t=>!selectedIds.has(t.id));
+  persist();exitSelectionMode();
+});
+document.getElementById('selCancelBtn').addEventListener('click',exitSelectionMode);
+
+/* ══ PAGER: category swipe (tasks handle their own tap/long-press/swipe via touch) ══ */
+let dragging=false,decided=false,startX=0,startY=0,startT=0,pressEl=null,moved=false,origTarget=null;
+pager.addEventListener('pointerdown',e=>{
+  origTarget=e.target;startX=e.clientX;startY=e.clientY;startT=Date.now();
+  decided=false;dragging=false;moved=false;
+  try{pager.setPointerCapture(e.pointerId);}catch(_){}
+  pressEl=origTarget.closest('.task');
+});
+pager.addEventListener('pointermove',e=>{
+  const dx=e.clientX-startX,dy=e.clientY-startY;
+  if(Math.abs(dx)>6||Math.abs(dy)>6)moved=true;
+  if(!decided){
+    if(Math.abs(dx)>8&&Math.abs(dx)>Math.abs(dy)){
+      if(pressEl){decided=true;dragging=false;}  // task handles its own horizontal swipe
+      else{decided=true;dragging=true;pager.classList.remove('animate');strip.classList.remove('animate');}
+    }
+    else if(Math.abs(dy)>8){decided=true;dragging=false;}
+  }
+  if(dragging){e.preventDefault();applyFloat(index-dx/W);}
+},{passive:false});
+function endDrag(e){
+  if(dragging){
+    const dx=e.clientX-startX,dt=Date.now()-startT,fast=Math.abs(dx)>40&&dt<260;
+    if(dx<-W*0.22||(fast&&dx<0))goTo(index+1);
+    else if(dx>W*0.22||(fast&&dx>0))goTo(index-1);
+    else goTo(index);
+  }else if(!moved){
+    // tap on the empty add-category panel
+    if(index===userCats().length+1&&!origTarget.closest('.task')){openCatSheet();}
+  }
+  dragging=false;decided=false;pressEl=null;origTarget=null;
+}
+pager.addEventListener('pointerup',endDrag);
+pager.addEventListener('pointercancel',()=>{dragging=false;decided=false;origTarget=null;});
+/* desktop (mouse) fallback — taps don't fire touch events */
+pager.addEventListener('click',e=>{
+  const taskEl=e.target.closest('.task');if(!taskEl)return;
+  if(moved)return;
+  activateTask(taskEl,e.target);
+});
+
+/* pivot: tap=navigate, long-press=category options, swipe=change category — all via touch */
+let pvX=0,pvY=0,pvMoved=false,pvLong=null,pvLongFired=false,pvTitleIdx=-1;
+function pvClearLong(){if(pvLong){clearTimeout(pvLong);pvLong=null;}}
+strip.addEventListener('touchstart',e=>{
+  const t=e.target.closest('.pivot-title');
+  pvX=e.touches[0].clientX;pvY=e.touches[0].clientY;pvMoved=false;pvLongFired=false;
+  // only real category titles (not "your day" overview, not "+") get long-press options
+  pvTitleIdx=(t&&!t.classList.contains('pivot-add')&&!t.classList.contains('pivot-overview'))?+t.dataset.i:-1;
+  pvClearLong();
+  if(pvTitleIdx>=0){
+    pvLong=setTimeout(()=>{
+      pvLong=null;pvLongFired=true;
+      if(navigator.vibrate)try{navigator.vibrate(15);}catch(_){}
+      showCatOptions(cats.indexOf(userCats()[pvTitleIdx-1]));   // panel index → cats[] index (skips __today__)
+    },480);
+  }
+},{passive:true});
+strip.addEventListener('touchmove',e=>{
+  const dx=e.touches[0].clientX-pvX,dy=e.touches[0].clientY-pvY;
+  if(Math.abs(dx)>8||Math.abs(dy)>8){pvMoved=true;pvClearLong();}
+},{passive:true});
+strip.addEventListener('touchend',e=>{
+  pvClearLong();
+  if(pvLongFired)return;                          // long-press already handled
+  const dx=e.changedTouches[0].clientX-pvX;
+  if(Math.abs(dx)>44){dx<0?goTo(index+1):goTo(index-1);return;}   // swipe = navigate
+  if(!pvMoved){                                   // tap
+    const t=e.target.closest('.pivot-title');if(!t)return;
+    const i=+t.dataset.i;i===userCats().length+1?openCatSheet():goTo(i);
+  }
+},{passive:true});
+/* desktop fallback */
+strip.addEventListener('click',e=>{
+  if('ontouchstart'in window)return;
+  const t=e.target.closest('.pivot-title');if(!t)return;
+  const i=+t.dataset.i;i===userCats().length+1?openCatSheet():goTo(i);
+});
+
+/* ══ TASK ACTIONS ══ */
+function toggleTask(el){
+  const c=curCat(),task=c?c.tasks.find(t=>t.id===el.dataset.id):null;if(!task)return;
+  task.done=!task.done;task.completedAt=task.done?Date.now():null;
+  el.classList.toggle('done',task.done);
+  const meta=el.querySelector('.t-meta');
+  if(meta){let mt=task.createdAt?'created '+fmtStamp(task.createdAt):'';if(task.done&&task.completedAt)mt+=(mt?'\u2002·\u2002done ':'done ')+fmtStamp(task.completedAt);meta.textContent=mt;}
+  if(task.done&&activeTimers[task.id]){clearTimeout(activeTimers[task.id]);delete activeTimers[task.id];}
+  else if(!task.done&&task.reminder&&task.reminder.enabled)scheduleReminders();
+  persist();
+  if(task.dueDate&&pager.children[0])renderOverviewPanel(pager.children[0]);
+}
+function toggleCheckItem(el){
+  const taskEl=el.closest('.task'),taskId=taskEl.dataset.id,idx=parseInt(el.dataset.idx,10);
+  const cat=curCat(),task=cat?cat.tasks.find(t=>t.id===taskId):null;
+  if(!task||!task.note||task.note.type!=='checklist')return;
+  const item=task.note.items[idx];item.checked=!item.checked;
+  el.classList.toggle('chk-done',item.checked);
+  el.querySelector('.chk-mark').textContent=item.checked?'✓':'○';persist();
+}
+
+/* ══ ADD / EDIT SHEET ══ */
+const taskBg=document.getElementById('taskBg'),taskSheet=document.getElementById('taskSheet');
+const taskInput=document.getElementById('taskInput'),noteInput=document.getElementById('noteInput');
+const noteArea=document.getElementById('noteArea'),reminderTimeInput=document.getElementById('reminderTimeInput');
+const dueDateInput=document.getElementById('dueDateInput'),dueDatePill=document.getElementById('dueDatePill'),dueDateClearBtn=document.getElementById('dueDateClearBtn');
+let newRepeat='none',newReminderVal='off',newNoteType='text',editingTaskId=null,newIndent=0;
+let sheetCatIdx=0,sheetDueDate=null;
+function setPills(rowId,val){[...document.getElementById(rowId).querySelectorAll('.pill')].forEach(b=>b.classList.toggle('active',b.dataset.val===val));}
+const INDENT_LABELS=['main task','sub-task','level 2','level 3','level 4','level 5'];
+function updateIndentUI(){document.getElementById('indentVal').textContent=newIndent;document.getElementById('indentHint').textContent=INDENT_LABELS[newIndent]||'level '+newIndent;}
+document.getElementById('indentDecBtn').addEventListener('click',()=>{newIndent=Math.max(0,newIndent-1);updateIndentUI();});
+document.getElementById('indentIncBtn').addEventListener('click',()=>{newIndent=Math.min(5,newIndent+1);updateIndentUI();});
+document.getElementById('noteTypeRow').addEventListener('click',e=>{
+  const p=e.target.closest('.pill');if(!p)return;
+  newNoteType=p.dataset.val;setPills('noteTypeRow',newNoteType);
+  const multi=newNoteType!=='text';noteInput.style.display=multi?'none':'block';noteArea.classList.toggle('show',multi);
+  if(multi){noteArea.placeholder='one item per line';noteArea.focus();}else noteInput.focus();
+});
+document.getElementById('repeatRow').addEventListener('click',e=>{const p=e.target.closest('.pill');if(!p)return;newRepeat=p.dataset.val;setPills('repeatRow',newRepeat);});
+document.getElementById('reminderRow').addEventListener('click',e=>{
+  const p=e.target.closest('.pill');if(!p)return;newReminderVal=p.dataset.val;setPills('reminderRow',newReminderVal);
+  document.getElementById('timeRow').classList.toggle('show',newReminderVal==='time');
+  if(newReminderVal!=='off')requestNotifPerm();else document.getElementById('notifNote').textContent='';
+});
+
+const MONS3_SHEET=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+const DOWS3_SHEET=['sun','mon','tue','wed','thu','fri','sat'];
+function fmtDueDateLabel(key){
+  const d=new Date(key+'T00:00:00');
+  return DOWS3_SHEET[d.getDay()]+' '+d.getDate()+' '+MONS3_SHEET[d.getMonth()];
+}
+function setDueDateUI(key){
+  sheetDueDate=key;
+  if(key){
+    dueDatePill.firstChild.textContent=fmtDueDateLabel(key)+' ';
+    dueDateClearBtn.style.display='inline-flex';
+  }else{
+    dueDatePill.firstChild.textContent='no date ';
+    dueDateClearBtn.style.display='none';
+  }
+}
+dueDateInput.addEventListener('change',()=>{setDueDateUI(dueDateInput.value||null);});
+dueDateClearBtn.addEventListener('click',e=>{e.preventDefault();dueDateInput.value='';setDueDateUI(null);});
+
+function renderCatPicker(){
+  const row=document.getElementById('catPickerRow');row.innerHTML='';
+  cats.forEach((c,ci)=>{
+    const b=document.createElement('button');
+    const isTodayBuiltin=c.id==='__today__';
+    b.className='pill'+(ci===sheetCatIdx?' active':'');
+    b.textContent=isTodayBuiltin?'★ today':c.name;
+    b.dataset.ci=ci;
+    b.addEventListener('click',()=>{
+      sheetCatIdx=ci;
+      [...row.children].forEach(x=>x.classList.toggle('active',+x.dataset.ci===ci));
+      if(!editingTaskId)document.getElementById('sheetTitle').textContent=
+        isTodayBuiltin?'new task for today':'new task in '+c.name;
+    });
+    row.appendChild(b);
+  });
+}
+
+function openSheet(task,prefillDueDate,forceToday){
+  if(index===userCats().length+1){openCatSheet();return;}
+  editingTaskId=task?task.id:null;
+  document.body.style.webkitUserSelect='text';document.body.style.userSelect='text';
+  newNoteType='text';newRepeat='none';newReminderVal='off';newIndent=0;
+  taskInput.value='';noteInput.value='';noteArea.value='';
+  setPills('noteTypeRow','text');setPills('repeatRow','none');setPills('reminderRow','off');
+  noteInput.style.display='block';noteArea.classList.remove('show');
+  document.getElementById('timeRow').classList.remove('show');document.getElementById('notifNote').textContent='';
+  updateIndentUI();
+  dueDateInput.value='';setDueDateUI(prefillDueDate||null);
+
+  // default category: "today" builtin if on overview or forceToday, else current user category
+  const todayIdx=cats.findIndex(c=>c.id==='__today__');
+  if(forceToday&&todayIdx>=0){sheetCatIdx=todayIdx;}
+  else{sheetCatIdx=(index>=1&&index<=userCats().length)?cats.indexOf(userCats()[index-1]):todayIdx>=0?todayIdx:0;}
+
+  if(task){
+    const loc=findTaskLocation(task.id);
+    if(loc)sheetCatIdx=loc.catIdx;
+    document.getElementById('sheetTitle').textContent='edit task';document.getElementById('saveBtn').textContent='save';
+    taskInput.value=task.text;newIndent=task.indent||0;updateIndentUI();
+    if(task.dueDate){dueDateInput.value=task.dueDate;setDueDateUI(task.dueDate);}
+    const n=normalizeNote(task.note);
+    if(n){newNoteType=n.type;setPills('noteTypeRow',newNoteType);
+      if(n.type==='text'){noteInput.value=n.text||'';}
+      else{noteArea.value=(n.type==='bullets'?n.items:n.items.map(x=>x.text)).join('\n');noteInput.style.display='none';noteArea.classList.add('show');}
+    }
+    newRepeat=task.repeat||'none';setPills('repeatRow',newRepeat);
+    if(task.reminder&&task.reminder.enabled){
+      if(task.reminder.mode==='time'){newReminderVal='time';reminderTimeInput.value=task.reminder.timeOfDay||'08:00';document.getElementById('timeRow').classList.add('show');}
+      else{const iv=String(task.reminder.intervalMinutes);newReminderVal=['15','30','60','120'].includes(iv)?iv:'off';}
+      setPills('reminderRow',newReminderVal);
+    }
+  }else{
+    document.getElementById('sheetTitle').textContent='new task in '+cats[sheetCatIdx].name;document.getElementById('saveBtn').textContent='add';
+  }
+  renderCatPicker();
+  taskBg.classList.add('open');taskSheet.classList.add('open');sheetOpenedAt=Date.now();setTimeout(()=>taskInput.focus(),120);
+}
+let sheetOpenedAt=0;
+/* Keep any open bottom-sheet fully above the on-screen keyboard (Android resizes the visual viewport).
+   Two parts: (1) lift the sheet so its bottom sits above the keyboard, (2) shrink its max-height to
+   match the now-smaller visible area, so the top of the sheet (title + task name) never gets pushed
+   off-screen — without the height fix the sheet kept its full ~92vh height and just got shifted up,
+   which is what was hiding the task-name field behind/above the visible viewport. */
+function anySheetOpen(){return document.querySelector('.sheet.open');}
+if(window.visualViewport){
+  const vv=window.visualViewport;
+  function adjustSheets(){
+    const lift=Math.max(0,(window.innerHeight-vv.height-vv.offsetTop));
+    const availableH=Math.max(220,vv.height-24); // leave a small margin at the top of the visible area
+    document.querySelectorAll('.sheet.open').forEach(s=>{
+      s.style.bottom=lift+'px';
+      s.style.maxHeight=lift>0?availableH+'px':'';
+    });
+  }
+  vv.addEventListener('resize',adjustSheets);
+  vv.addEventListener('scroll',adjustSheets);
+  // when any field inside an open sheet gains focus, make sure it's scrolled into view
+  // within the sheet's own scroll area (now that the sheet's height is correctly constrained)
+  document.addEventListener('focusin',e=>{
+    const sheet=e.target.closest('.sheet.open');
+    if(sheet)setTimeout(()=>{e.target.scrollIntoView({block:'nearest',behavior:'smooth'});},80);
+  });
+}
+function closeSheet(){document.body.style.webkitUserSelect='';document.body.style.userSelect='';taskBg.classList.remove('open');taskSheet.classList.remove('open');taskSheet.style.bottom='';taskSheet.style.maxHeight='';}
+function saveTask(){
+  const text=taskInput.value.trim();if(!text){taskInput.focus();return;}
+  let note=null;
+  if(newNoteType==='text'){const v=noteInput.value.trim();if(v)note={type:'text',text:v};}
+  else{
+    const lines=noteArea.value.split('\n').map(l=>l.trim()).filter(Boolean);
+    if(lines.length){
+      if(newNoteType==='bullets')note={type:'bullets',items:lines};
+      else{const prevLoc=editingTaskId?findTaskLocation(editingTaskId):null;const pi=(prevLoc&&prevLoc.task.note&&prevLoc.task.note.type==='checklist')?prevLoc.task.note.items:[];note={type:'checklist',items:lines.map((l,i)=>({text:l,checked:pi[i]?pi[i].checked:false}))};}
+    }
+  }
+  let reminder=null;
+  if(newReminderVal!=='off'){
+    if(newReminderVal==='time'){const tv=reminderTimeInput.value||'08:00';reminder={enabled:true,mode:'time',timeOfDay:tv,scheduledFor:nextOccurrence(tv)};}
+    else{const mins=parseInt(newReminderVal,10);reminder={enabled:true,mode:'interval',intervalMinutes:mins,scheduledFor:Date.now()+mins*60000};}
+  }
+  if(editingTaskId){
+    const loc=findTaskLocation(editingTaskId);
+    if(loc){
+      const task=loc.task;
+      const oldGcalId=task.gcalEventId;
+      task.text=text;task.note=note;task.repeat=newRepeat;task.reminder=reminder;task.indent=newIndent;task.dueDate=sheetDueDate;
+      if(!reminder&&activeTimers[editingTaskId]){clearTimeout(activeTimers[editingTaskId]);delete activeTimers[editingTaskId];}
+      if(sheetCatIdx!==loc.catIdx){
+        cats[loc.catIdx].tasks.splice(cats[loc.catIdx].tasks.findIndex(t=>t.id===editingTaskId),1);
+        cats[sheetCatIdx].tasks.push(task);
+      }
+      // update gcal event if due date changed
+      if(gcalEnabled&&gcalAccessToken){
+        if(sheetDueDate){syncTaskToGcal(task,oldGcalId);}
+        else if(oldGcalId){deleteGCalEvent(gcalAccessToken,oldGcalId);task.gcalEventId=null;}
+      }
+    }
+  }else{
+    const newTask={id:uid(),text,note,indent:newIndent,done:false,createdAt:Date.now(),completedAt:null,repeat:newRepeat,reminder,dueDate:sheetDueDate,gcalEventId:null};
+    cats[sheetCatIdx].tasks.push(newTask);
+    if(gcalEnabled&&gcalAccessToken&&sheetDueDate)syncTaskToGcal(newTask,null);
+  }
+  build();persist();scheduleReminders();closeSheet();
+}
+document.getElementById('addBtn').addEventListener('click',()=>{
+  if(index===0){openSheet(null,null,true);}else{openSheet(null);}
+});
+document.getElementById('cancelBtn').addEventListener('click',closeSheet);
+document.getElementById('saveBtn').addEventListener('click',saveTask);
+taskBg.addEventListener('click',()=>{if(Date.now()-sheetOpenedAt<600)return;closeSheet();});
+taskInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();noteInput.style.display!=='none'?noteInput.focus():noteArea.focus();}});
+
+/* ══ CATEGORY MANAGEMENT ══ */
+const catBg=document.getElementById('catBg'),catSheet=document.getElementById('catSheet'),catInput=document.getElementById('catInput');
+function openCatSheet(editIdx){
+  catSheet._editIdx=(editIdx!==undefined)?editIdx:-1;const isEdit=catSheet._editIdx>=0;
+  document.getElementById('catSheetTitle').textContent=isEdit?'rename category':'new category';
+  document.getElementById('catSaveBtn').textContent=isEdit?'rename':'create';
+  catInput.value=isEdit?cats[catSheet._editIdx].name:'';
+  catBg.classList.add('open');catSheet.classList.add('open');catOpenedAt=Date.now();setTimeout(()=>catInput.focus(),120);
+}
+let catOpenedAt=0;
+function closeCatSheet(){catBg.classList.remove('open');catSheet.classList.remove('open');catSheet.style.bottom='';catSheet.style.maxHeight='';}
+function saveCat(){
+  const name=catInput.value.trim();if(!name){catInput.focus();return;}
+  const isEdit=catSheet._editIdx>=0;
+  const editIdx=catSheet._editIdx;
+  if(document.activeElement&&document.activeElement.blur)document.activeElement.blur();
+  closeCatSheet();          // close FIRST, unconditionally
+  catSheet._editIdx=-1;
+  if(isEdit){cats[editIdx].name=name;closeCatOptSheet();}
+  else{cats.push({id:uid(),name,tasks:[]});index=userCats().length;}
+  build();persist();
+}
+catBg.addEventListener('click',()=>{if(Date.now()-catOpenedAt<600)return;closeCatSheet();});
+document.getElementById('catCancelBtn').addEventListener('click',closeCatSheet);
+document.getElementById('catSaveBtn').addEventListener('click',saveCat);
+catInput.addEventListener('keydown',e=>{if(e.key==='Enter')saveCat();});
+const catOptBg=document.getElementById('catOptBg'),catOptSheet=document.getElementById('catOptSheet');
+function closeCatOptSheet(){catOptBg.classList.remove('open');catOptSheet.classList.remove('open');}
+catOptBg.addEventListener('click',closeCatOptSheet);
+function showCatOptions(i){
+  const cat=cats[i];if(!cat||cat.builtin)return;  // can't manage built-in today category
+  document.getElementById('catOptName').textContent=cat.name;
+  const btns=document.getElementById('catOptBtns');btns.innerHTML='';
+  const ren=document.createElement('button');ren.className='action-btn';ren.textContent='rename';ren.onclick=()=>{closeCatOptSheet();openCatSheet(i);};btns.appendChild(ren);
+  if(cat.tasks.length>1){
+    const rt=document.createElement('button');rt.className='action-btn';rt.textContent='reorder tasks';rt.onclick=()=>{closeCatOptSheet();openTaskReorderSheet(i);};btns.appendChild(rt);
+  }
+  const reord=document.createElement('button');reord.className='action-btn';reord.textContent='reorder categories';reord.onclick=()=>{closeCatOptSheet();openReorderSheet();};btns.appendChild(reord);
+  if(userCats().length>1){
+    const del=document.createElement('button');del.className='action-btn action-del';
+    del.textContent='delete category'+(cat.tasks.length?' ('+cat.tasks.length+' tasks)':'');
+    del.onclick=()=>{cat.tasks.forEach(t=>{if(activeTimers[t.id]){clearTimeout(activeTimers[t.id]);delete activeTimers[t.id];}});cats.splice(i,1);index=Math.max(0,Math.min(index,userCats().length+1));persist();closeCatOptSheet();build();};
+    btns.appendChild(del);
+  }
+  catOptBg.classList.add('open');catOptSheet.classList.add('open');
+}
+/* reorder */
+const reorderBg=document.getElementById('reorderBg'),reorderSheet=document.getElementById('reorderSheet');
+let reorderDragInited=false;
+function openReorderSheet(){buildReorderList();if(!reorderDragInited){initReorderDrag(document.getElementById('reorderList'));reorderDragInited=true;}reorderBg.classList.add('open');reorderSheet.classList.add('open');}
+function closeReorderSheet(){reorderBg.classList.remove('open');reorderSheet.classList.remove('open');reorderSheet.style.bottom='';index=Math.max(0,Math.min(index,userCats().length+1));build();}
+reorderBg.addEventListener('click',closeReorderSheet);
+document.getElementById('reorderDoneBtn').addEventListener('click',closeReorderSheet);
+function buildReorderList(){
+  const list=document.getElementById('reorderList');list.innerHTML='';
+  cats.forEach((cat,i)=>{
+    const item=document.createElement('div');item.className='reorder-item';item.dataset.i=i;
+    item.innerHTML=`<span class="reorder-handle">&#8801;</span><span class="reorder-name">${cat.name}</span><span class="reorder-count">${cat.tasks.length?cat.tasks.length+' task'+(cat.tasks.length!==1?'s':''):''}</span>`;
+    list.appendChild(item);
+  });
+}
+function initReorderDrag(list){
+  let dragEl=null,fromIdx=-1,startY=0,origMids=[];
+  list.addEventListener('pointerdown',e=>{
+    const item=e.target.closest('.reorder-item');if(!item)return;
+    e.preventDefault();list.setPointerCapture(e.pointerId);
+    const items=[...list.querySelectorAll('.reorder-item')];
+    fromIdx=items.indexOf(item);origMids=items.map(el=>el.getBoundingClientRect().top+el.offsetHeight/2);
+    startY=e.clientY;dragEl=item;dragEl.classList.add('is-dragging');
+  },{passive:false});
+  list.addEventListener('pointermove',e=>{
+    if(!dragEl)return;e.preventDefault();
+    const dy=e.clientY-startY;dragEl.style.transform=`translateY(${dy}px)`;
+    const dragMidY=dragEl.getBoundingClientRect().top+dragEl.offsetHeight/2;const ih=dragEl.offsetHeight;
+    const items=[...list.querySelectorAll('.reorder-item')];
+    items.forEach((item,i)=>{if(item===dragEl)return;if(i<fromIdx&&dragMidY<origMids[i])item.style.transform=`translateY(${ih}px)`;else if(i>fromIdx&&dragMidY>origMids[i])item.style.transform=`translateY(-${ih}px)`;else item.style.transform='';});
+  },{passive:false});
+  function drop(){
+    if(!dragEl)return;
+    const items=[...list.querySelectorAll('.reorder-item')];
+    const dragMidY=dragEl.getBoundingClientRect().top+dragEl.offsetHeight/2;
+    const newIdx=origMids.filter((mid,i)=>i!==fromIdx&&mid<dragMidY).length;
+    items.forEach(item=>{item.style.transform='';item.classList.remove('is-dragging');});
+    const fi=fromIdx;dragEl=null;fromIdx=-1;
+    if(newIdx!==fi){const moved=cats.splice(fi,1)[0];cats.splice(newIdx,0,moved);if(index===fi)index=newIdx;else if(fi<newIdx&&index>fi&&index<=newIdx)index--;else if(fi>newIdx&&index>=newIdx&&index<fi)index++;persist();buildReorderList();}
+  }
+  list.addEventListener('pointerup',drop);list.addEventListener('pointercancel',drop);
+}
+
+/* reorder tasks within a category */
+const taskReorderBg=document.getElementById('taskReorderBg'),taskReorderSheet=document.getElementById('taskReorderSheet');
+let taskReorderCatIdx=-1,taskReorderInited=false;
+function openTaskReorderSheet(catIdx){
+  taskReorderCatIdx=catIdx;
+  document.getElementById('taskReorderTitle').textContent='reorder '+cats[catIdx].name;
+  buildTaskReorderList();
+  if(!taskReorderInited){initTaskReorderDrag(document.getElementById('taskReorderList'));taskReorderInited=true;}
+  taskReorderBg.classList.add('open');taskReorderSheet.classList.add('open');
+}
+function closeTaskReorderSheet(){taskReorderBg.classList.remove('open');taskReorderSheet.classList.remove('open');taskReorderSheet.style.bottom='';build();}
+taskReorderBg.addEventListener('click',closeTaskReorderSheet);
+document.getElementById('taskReorderDoneBtn').addEventListener('click',closeTaskReorderSheet);
+function buildTaskReorderList(){
+  const list=document.getElementById('taskReorderList');list.innerHTML='';
+  cats[taskReorderCatIdx].tasks.forEach((task,i)=>{
+    const item=document.createElement('div');item.className='reorder-item';item.dataset.i=i;
+    const indentPad=task.indent?('margin-left:'+(task.indent*14)+'px;'):'';
+    item.innerHTML=`<span class="reorder-handle">&#8801;</span><span class="reorder-name" style="${indentPad}font-size:${task.indent?17:20}px;${task.done?'opacity:.4;text-decoration:line-through;':''}">${escapeHtml(task.text)}</span>`;
+    list.appendChild(item);
+  });
+}
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function initTaskReorderDrag(list){
+  let dragEl=null,fromIdx=-1,startY=0,origMids=[];
+  list.addEventListener('pointerdown',e=>{
+    const item=e.target.closest('.reorder-item');if(!item)return;
+    e.preventDefault();list.setPointerCapture(e.pointerId);
+    const items=[...list.querySelectorAll('.reorder-item')];
+    fromIdx=items.indexOf(item);origMids=items.map(el=>el.getBoundingClientRect().top+el.offsetHeight/2);
+    startY=e.clientY;dragEl=item;dragEl.classList.add('is-dragging');
+  },{passive:false});
+  list.addEventListener('pointermove',e=>{
+    if(!dragEl)return;e.preventDefault();
+    const dy=e.clientY-startY;dragEl.style.transform=`translateY(${dy}px)`;
+    const dragMidY=dragEl.getBoundingClientRect().top+dragEl.offsetHeight/2;const ih=dragEl.offsetHeight;
+    const items=[...list.querySelectorAll('.reorder-item')];
+    items.forEach((item,i)=>{if(item===dragEl)return;if(i<fromIdx&&dragMidY<origMids[i])item.style.transform=`translateY(${ih}px)`;else if(i>fromIdx&&dragMidY>origMids[i])item.style.transform=`translateY(-${ih}px)`;else item.style.transform='';});
+  },{passive:false});
+  function drop(){
+    if(!dragEl)return;
+    const dragMidY=dragEl.getBoundingClientRect().top+dragEl.offsetHeight/2;
+    const newIdx=origMids.filter((mid,i)=>i!==fromIdx&&mid<dragMidY).length;
+    [...list.querySelectorAll('.reorder-item')].forEach(item=>{item.style.transform='';item.classList.remove('is-dragging');});
+    const fi=fromIdx;dragEl=null;fromIdx=-1;
+    if(newIdx!==fi){const arr=cats[taskReorderCatIdx].tasks;const moved=arr.splice(fi,1)[0];arr.splice(newIdx,0,moved);persist();buildTaskReorderList();}
+  }
+  list.addEventListener('pointerup',drop);list.addEventListener('pointercancel',drop);
+}
+const accountBg=document.getElementById('accountBg'),accountSheet=document.getElementById('accountSheet');
+function openAccountSheet(){
+  document.getElementById('acctSignedIn').style.display=guestMode?'none':'block';
+  document.getElementById('acctGuest').style.display=guestMode?'block':'none';
+  accountBg.classList.add('open');accountSheet.classList.add('open');
+}
+function closeAccountSheet(){accountBg.classList.remove('open');accountSheet.classList.remove('open');}
+accountBg.addEventListener('click',closeAccountSheet);
+document.getElementById('userBtn').addEventListener('click',()=>{
+  if(currentUser && !preventAutoSignIn)openAccountSheet();
+  else showSignInScreen(); // signed out or in auto-re-auth limbo → show sign-in
+});
+document.getElementById('signOutBtn').addEventListener('click',()=>{
+  closeAccountSheet();
+  if(unsubListen){unsubListen();unsubListen=null;}
+  localStorage.removeItem('yourday:guest');
+  guestMode=false;currentUser=null;
+  preventAutoSignIn=true;setSignedOutMode();   // block onAuthStateChanged from auto-re-logging in
+  auth.signOut().then(()=>showSignInScreen()).catch(()=>showSignInScreen());
+});
+// guest → sign in, uploading existing local tasks to cloud
+document.getElementById('guestSignInBtn').addEventListener('click',()=>signInWithGoogle(true));
+
+async function signInWithGoogle(uploadLocal){
+  clearSignedOutMode();preventAutoSignIn=false;
+  const provider=new firebase.auth.GoogleAuthProvider();
+  try{
+    const result=await auth.signInWithPopup(provider);
+    const user=result.user;
+    currentUser=user;guestMode=false;
+    localStorage.removeItem('yourday:guest');
+    if(uploadLocal){
+      await db.collection('users').doc(user.uid).set({
+        cats:JSON.stringify(cats),name:getUserName(),theme:currentTheme,
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+      },{merge:true});
+    }else{
+      const saved=await load();
+      if(saved&&Array.isArray(saved)&&saved.length){cats=migrateData(saved);build();}
+    }
+    updateUserAvatar(user);subscribeToChanges();
+    closeAccountSheet();dismissSplash();
+    document.getElementById('gcalBtn').style.display='';
+    showToast('your day','✓ signed in');
+  }catch(e){
+    if(e.code!=='auth/popup-closed-by-user'&&e.code!=='auth/cancelled-popup-request')
+      showToast('your day','sign in failed');
+  }
+}
+
+/* ══ AUTH ══ */
+function updateUserAvatar(user){
+  const btn=document.getElementById('userBtn');
+  btn.classList.add('visible');
+  if(user){
+    const initial=(user.displayName||user.email||'?')[0].toUpperCase();
+    btn.textContent=initial;btn.title='account';
+    document.getElementById('acctAvatar').textContent=initial;
+    document.getElementById('acctName').textContent=user.displayName||'';
+    document.getElementById('acctEmail').textContent=user.email||'';
+  }else{
+    btn.textContent='⟩';btn.title='sign in';
+  }
+}
+function showSignInScreen(){
+  splashDone=false;
+  const splash=document.getElementById('splash');if(!splash)return;
+  // Force visible — remove any inline styles and animation classes that could hide it
+  splash.classList.remove('hiding');
+  splash.style.display='flex';
+  splash.style.opacity='1';
+  splash.style.transform='none';
+  document.getElementById('splashLoading').classList.remove('show');
+  document.getElementById('splashSignIn').classList.add('show');
+  // If in TWA and auto-re-auth keeps fighting us, also switch to guest mode
+  // so the app is usable and the user sees a clear path to sign back in
+  guestMode=true;
+  currentUser=null;
+  updateUserAvatar(null);
+}
+
+// Simple sign-in — popup works in TWA via Chrome Custom Tabs
+// Clear signedOutMode BEFORE attempting so the auth result isn't blocked on return
+function doSignIn(){
+  clearSignedOutMode();
+  preventAutoSignIn=false;
+  const provider=new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(provider).catch(err=>{
+    const errEl=document.getElementById('splashError');
+    if(errEl)errEl.textContent=
+      err.code==='auth/popup-blocked'?'allow popups for this site and try again':
+      (err.code==='auth/cancelled-popup-request'||err.code==='auth/popup-closed-by-user')?'':
+      'sign-in failed — try again';
+  });
+}
+
+// Google sign-in button on splash screen
+document.getElementById('googleSignInBtn').addEventListener('click',()=>{
+  document.getElementById('splashError').textContent='';
+  doSignIn();
+});
+
+// If Firebase auth check takes too long (network timeout in TWA), stop waiting and show sign-in
+const authTimeoutTimer=setTimeout(()=>{
+  const loading=document.getElementById('splashLoading');
+  if(!loading||!loading.classList.contains('show'))return; // auth already resolved
+  loading.classList.remove('show');
+  // Show sign-in screen — user can sign in or continue as guest
+  document.getElementById('splashSignIn').classList.add('show');
+},8000);
+
+// Auth state listener — this is the main entry point
+auth.onAuthStateChanged(async user=>{
+  clearTimeout(authTimeoutTimer);
+  document.getElementById('splashLoading').classList.remove('show');
+
+  if(user && preventAutoSignIn){
+    // user auto-re-authenticated after explicit sign-out
+    // don't show their cloud data — load local/guest data instead and show sign-in
+    currentUser=null;guestMode=true;
+    const saved=loadLocal();
+    cats=migrateData(saved&&Array.isArray(saved)&&saved.length?saved:makeSeed());
+    resetRecurring();build();scheduleReminders();
+    showSignInScreen();   // keep showing the sign-in screen
+    return;
+  }
+
+  currentUser=user;
+
+  if(user){
+    preventAutoSignIn=false;clearSignedOutMode();
+    guestMode=false;
+    updateUserAvatar(user);
+    if(!getUserName()&&user.displayName){setUserName(user.displayName.split(' ')[0]);}
+    updateKicker();
+    const saved=await load();
+    cats=migrateData(saved&&Array.isArray(saved)&&saved.length?saved:makeSeed());
+    resetRecurring();build();scheduleReminders();
+    subscribeToChanges();
+    dismissSplash();
+  }else if(localStorage.getItem('yourday:guest')==='1'){
+    guestMode=true;
+    const saved=loadLocal();
+    cats=migrateData(saved&&Array.isArray(saved)&&saved.length?saved:makeSeed());
+    resetRecurring();build();scheduleReminders();
+    document.getElementById('gcalBtn').style.display='none';
+    dismissSplash();
+  }else{
+    document.getElementById('splashSignIn').classList.add('show');
+  }
+});
+
+/* ══ USER NAME ══ */
+const NAME_KEY='yourday:name';
+function getUserName(){try{return localStorage.getItem(NAME_KEY)||'';}catch(_){return'';}}
+function setUserName(n){try{localStorage.setItem(NAME_KEY,n);}catch(_){}}
+function updateKicker(){
+  const n=getUserName();
+  document.getElementById('kicker').textContent='a glance at your day'+(n?', '+n:'');
+  const now=new Date();
+  document.getElementById('kickerDate').textContent=DAYS[now.getDay()]+' '+now.getDate()+' '+MONS[now.getMonth()];
+}
+
+/* ══ SPLASH ══ */
+let splashDone=false;
+function dismissSplash(){
+  if(splashDone)return;splashDone=true;
+  const el=document.getElementById('splash');if(!el)return;
+  el.classList.add('hiding');
+  setTimeout(()=>{el.style.display='none';el.classList.remove('hiding');},600);
+}
+
+/* ══ CLOCK + MIDNIGHT ══ */
+function tick(){const d=new Date(),h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0');document.getElementById('clock').textContent=h+':'+m;}
+setInterval(tick,10000);tick();
+
+/* ══ BATTERY STATUS ══ */
+function updateBatteryUI(bat){
+  const wrap=document.getElementById('batteryWrap');
+  const pct=document.getElementById('batteryPct');
+  const icon=document.getElementById('batteryIcon');
+  const fill=document.getElementById('batteryFill');
+  if(!wrap)return;
+  const level=Math.round(bat.level*100);
+  wrap.style.display='flex';
+  pct.textContent=level+'%';
+  fill.style.width=Math.max(1,level-2)+'%'; // -2 for padding inside icon
+  icon.classList.remove('low','medium','high','charging');
+  if(bat.charging)icon.classList.add('charging');
+  else if(level<=20)icon.classList.add('low');
+  else if(level<=50)icon.classList.add('medium');
+  else icon.classList.add('high');
+}
+if('getBattery'in navigator){
+  navigator.getBattery().then(bat=>{
+    updateBatteryUI(bat);
+    bat.addEventListener('levelchange',()=>updateBatteryUI(bat));
+    bat.addEventListener('chargingchange',()=>updateBatteryUI(bat));
+  }).catch(()=>{});
+}
+function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1);setTimeout(()=>{resetRecurring();updateKicker();[...Array(userCats().length).keys()].forEach(i=>renderPanel(i));if(pager.children[0])renderOverviewPanel(pager.children[0]);schedMidnight();},next-now);}
+window.addEventListener('resize',()=>layout(true));
+schedMidnight();
+
+applyTheme(loadTheme());
+updateKicker();
+// Auth listener above handles everything else after Firebase resolves
+
+/* ══ FULLSCREEN (hides Android system status bar at runtime) ══
+   Using JS Fullscreen API instead of manifest display:fullscreen
+   so PWABuilder can still generate the package using display:standalone. */
+function requestFullscreen(){
+  const el=document.documentElement;
+  const fn=el.requestFullscreen||el.webkitRequestFullscreen||el.mozRequestFullScreen||el.msRequestFullscreen;
+  if(fn)fn.call(el).catch(()=>{});
+}
+// Request on first user interaction (browsers require a gesture)
+document.addEventListener('pointerdown',function onFirstTouch(){
+  requestFullscreen();
+  document.removeEventListener('pointerdown',onFirstTouch);
+},{once:true});
+// Re-request if user exits fullscreen (e.g. via back gesture)
+document.addEventListener('fullscreenchange',()=>{
+  if(!document.fullscreenElement)setTimeout(requestFullscreen,800);
+});
+document.addEventListener('webkitfullscreenchange',()=>{
+  if(!document.webkitFullscreenElement)setTimeout(requestFullscreen,800);
+});
+if('serviceWorker'in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
