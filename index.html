@@ -714,7 +714,7 @@ const db   = firebase.firestore();
 // Enable offline persistence so the app works without internet
 db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
-let currentUser = null;
+let currentUser = null, preventAutoSignIn = false;
 
 /* ══ THEMES ══ */
 const THEMES={
@@ -2032,12 +2032,14 @@ document.getElementById('signOutBtn').addEventListener('click',()=>{
   if(unsubListen){unsubListen();unsubListen=null;}
   localStorage.removeItem('yourday:guest');
   guestMode=false;currentUser=null;
+  preventAutoSignIn=true;   // block onAuthStateChanged from auto-re-logging in
   auth.signOut().then(()=>showSignInScreen()).catch(()=>showSignInScreen());
 });
 // guest → sign in, uploading existing local tasks to cloud
 document.getElementById('guestSignInBtn').addEventListener('click',()=>signInWithGoogle(true));
 
 async function signInWithGoogle(uploadLocal){
+  preventAutoSignIn=false;   // user is intentionally signing in — allow it
   const provider=new firebase.auth.GoogleAuthProvider();
   try{
     const result=await auth.signInWithPopup(provider);
@@ -2089,6 +2091,7 @@ function showSignInScreen(){
 // Google sign-in
 document.getElementById('googleSignInBtn').addEventListener('click',()=>{
   document.getElementById('splashError').textContent='';
+  preventAutoSignIn=false;   // user is intentionally signing in
   const provider=new firebase.auth.GoogleAuthProvider();
   auth.signInWithPopup(provider).catch(err=>{
     document.getElementById('splashError').textContent=
@@ -2100,10 +2103,18 @@ document.getElementById('googleSignInBtn').addEventListener('click',()=>{
 
 // Auth state listener — this is the main entry point
 auth.onAuthStateChanged(async user=>{
-  currentUser=user;
   document.getElementById('splashLoading').classList.remove('show');
 
+  if(user && preventAutoSignIn){
+    // user auto-re-authenticated after explicit sign-out — sign them out again silently
+    auth.signOut();
+    return;
+  }
+
+  currentUser=user;
+
   if(user){
+    preventAutoSignIn=false;
     // Signed in — cloud sync mode
     guestMode=false;
     updateUserAvatar(user);
