@@ -445,7 +445,18 @@
   .today-task .chk-item{font-size:13px;color:var(--dim);line-height:1.4;}
   .today-task.done .t-note,.today-task.done .t-bullets,.today-task.done .t-checklist{opacity:.28;}
 
-  /* ── google calendar event in agenda ── */
+  /* ── overview overlay ── */
+  #ovOverlay{transition:opacity .25s ease;}
+  .ov-piece{break-inside:avoid;display:inline-block;width:100%;padding:8px 0 20px;cursor:pointer;}
+  .ov-piece-name{font-weight:300;letter-spacing:-.5px;line-height:1;margin-bottom:8px;color:rgba(var(--fg-rgb,255,255,255),.38);}
+  .ov-piece-name-dark{color:rgba(255,255,255,.38);}
+  .ov-piece-name-light{color:rgba(0,0,0,.3);}
+  .ov-task-r{display:flex;align-items:flex-start;gap:6px;padding:2.5px 0;}
+  .ov-chk{width:11px;height:11px;border-radius:50%;border:1px solid;flex-shrink:0;margin-top:2px;display:flex;align-items:center;justify-content:center;font-size:7px;border-color:var(--dim);opacity:.6;}
+  .ov-chk.done{border-color:var(--done-fg);color:var(--done-fg);opacity:1;}
+  .ov-txt{font-size:12px;font-weight:300;color:var(--dim);line-height:1.3;flex:1;}
+  .ov-txt.done{text-decoration:line-through;opacity:.38;}
+  .ov-piece-count{font-size:9px;color:var(--dim);opacity:.5;letter-spacing:.4px;margin-top:7px;}
   .gcal-event{padding:12px 0;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid rgba(255,255,255,.04);}
   .gcal-event .cat-tag{color:#4285F4;}
   .gcal-event .t-title{font-size:20px;}
@@ -507,6 +518,10 @@
     <!-- backup/restore button -->
     <button class="appbar-icon-btn" id="backupBtn" aria-label="backup and restore" title="backup / restore">
       <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <!-- overview button -->
+    <button class="appbar-icon-btn" id="ovBtn" aria-label="all categories" title="all categories">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
     </button>
     <!-- Google Calendar button -->
     <button class="appbar-icon-btn" id="gcalBtn" aria-label="Google Calendar" title="Google Calendar">
@@ -696,6 +711,18 @@
   <div class="sheet-actions" style="margin-top:24px;">
     <button class="secondary" id="backupCloseBtn">close</button>
   </div>
+</div>
+
+<!-- overview overlay -->
+<div id="ovOverlay" style="display:none;position:fixed;inset:0;z-index:100;background:var(--bg);flex-direction:column;">
+  <div style="display:flex;justify-content:flex-end;padding:env(safe-area-inset-top,10px) var(--pad) 0;font-size:13px;color:var(--fg);">
+    <span id="ovClock"></span>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:12px var(--pad) 6px;">
+    <span style="font-size:10px;font-weight:600;letter-spacing:3px;text-transform:uppercase;color:var(--dim);opacity:.6;">all categories</span>
+    <button id="ovCloseBtn" style="width:26px;height:26px;border-radius:50%;border:1.5px solid var(--dim);background:transparent;color:var(--dim);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:.7;">✕</button>
+  </div>
+  <div id="ovPuzzle" style="padding:2px var(--pad) 80px;column-count:2;column-gap:18px;overflow-y:auto;flex:1;"></div>
 </div>
 
 <script>
@@ -974,6 +1001,83 @@ document.getElementById('guestModeBtn').addEventListener('click',()=>{
   showToast('your day','offline mode — data saved locally');
 });
 
+/* ══ CATEGORY OVERVIEW ══ */
+const ovOverlay=document.getElementById('ovOverlay');
+let ovOpen=false;
+
+function openOverview(){
+  buildOverview();
+  ovOverlay.style.display='flex';
+  document.getElementById('ovClock').textContent=document.getElementById('clock').textContent;
+  requestAnimationFrame(()=>ovOverlay.style.opacity='1');
+  ovOpen=true;
+  document.getElementById('ovBtn').classList.add('gcal-on');
+}
+function closeOverview(){
+  ovOverlay.style.opacity='0';
+  setTimeout(()=>{ovOverlay.style.display='none';},260);
+  ovOpen=false;
+  document.getElementById('ovBtn').classList.remove('gcal-on');
+}
+document.getElementById('ovBtn').addEventListener('click',()=>ovOpen?closeOverview():openOverview());
+document.getElementById('ovCloseBtn').addEventListener('click',closeOverview);
+
+function buildOverview(){
+  const puzzle=document.getElementById('ovPuzzle');
+  puzzle.innerHTML='';
+  // size class based on task count
+  function sizeClass(n){if(n>=5)return 28;if(n>=4)return 24;if(n>=3)return 20;return 17;}
+  // include todayCat first, then userCats
+  const all=[todayCat(),...userCats()];
+  all.forEach((cat,ci)=>{
+    if(!cat||!cat.tasks.length)return;
+    const piece=document.createElement('div');piece.className='ov-piece';
+    const remaining=cat.tasks.filter(t=>!t.done).length;
+    const nameEl=document.createElement('div');
+    nameEl.className='ov-piece-name';
+    nameEl.style.fontSize=sizeClass(cat.tasks.length)+'px';
+    nameEl.textContent=cat.name;
+    piece.appendChild(nameEl);
+    cat.tasks.forEach(task=>{
+      const row=document.createElement('div');row.className='ov-task-r';
+      if(task.indent)row.style.paddingLeft=(task.indent*10)+'px';
+      const chk=document.createElement('div');chk.className='ov-chk'+(task.done?' done':'');
+      chk.textContent=task.done?'✓':'';
+      const txt=document.createElement('div');txt.className='ov-txt'+(task.done?' done':'');
+      txt.style.fontSize=task.indent?'10.5px':'12px';
+      txt.textContent=task.text;
+      row.appendChild(chk);row.appendChild(txt);piece.appendChild(row);
+      // show checklist/bullets inline
+      const note=normalizeNote(task.note);
+      if(note&&!task.done){
+        if(note.type==='bullets'){
+          (note.items||[]).forEach(item=>{
+            const br=document.createElement('div');br.className='ov-task-r';br.style.paddingLeft='14px';
+            br.innerHTML=`<div style="font-size:9px;color:var(--dim);opacity:.5;flex-shrink:0;margin-top:2px;">·</div><div class="ov-txt" style="font-size:10.5px;opacity:.65;">${item}</div>`;
+            piece.appendChild(br);
+          });
+        }else if(note.type==='checklist'){
+          (note.items||[]).forEach(item=>{
+            const br=document.createElement('div');br.className='ov-task-r';br.style.paddingLeft='14px';
+            const ic=document.createElement('div');ic.className='ov-chk'+(item.checked?' done':'');ic.style.width='9px';ic.style.height='9px';ic.style.marginTop='3px';ic.textContent=item.checked?'✓':'';
+            const it=document.createElement('div');it.className='ov-txt'+(item.checked?' done':'');it.style.fontSize='10.5px';it.textContent=item.text;
+            br.appendChild(ic);br.appendChild(it);piece.appendChild(br);
+          });
+        }
+      }
+    });
+    const cnt=document.createElement('div');cnt.className='ov-piece-count';
+    cnt.textContent=remaining+' of '+cat.tasks.length+' remaining';
+    piece.appendChild(cnt);
+    // tap piece → navigate to that category
+    piece.addEventListener('click',()=>{
+      closeOverview();
+      if(cat.id==='__today__'){goTo(0);}
+      else{const uc=userCats();const ui=uc.indexOf(cat);if(ui>=0)goTo(ui+1);}
+    });
+    puzzle.appendChild(piece);
+  });
+}
 /* ══ GOOGLE CALENDAR (two-way sync) ══
    Setup required once: Google Cloud Console → yourday-adfa1 project
    → Enable "Google Calendar API" → OAuth consent screen → add scope:
