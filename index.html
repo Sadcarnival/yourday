@@ -229,7 +229,7 @@
 
 
   /* ── app bar ── */
-  .appbar{position:fixed;left:0;right:0;bottom:0;
+  .appbar{position:fixed;left:0;right:0;bottom:0;overflow:visible;
     padding-bottom:env(safe-area-inset-bottom, 0px);
     height:calc(74px + env(safe-area-inset-bottom, 0px));background:var(--bg);
     display:flex;align-items:center;justify-content:space-between;padding:0 var(--pad);
@@ -445,23 +445,43 @@
   .today-task .chk-item{font-size:13px;color:var(--dim);line-height:1.4;}
   .today-task.done .t-note,.today-task.done .t-bullets,.today-task.done .t-checklist{opacity:.28;}
 
-  /* ── nav grip ── */
+  /* ── nav grip: fixed rails + sliding bars ── */
   .nav-ball{
-    width:44px;height:44px;display:flex;align-items:center;justify-content:center;
-    cursor:grab;touch-action:none;flex-shrink:0;position:relative;
-    transition:transform .45s cubic-bezier(.2,1.4,.4,1);
-    -webkit-tap-highlight-color:transparent;
+    position:relative;width:90px;align-self:stretch;
+    display:flex;align-items:flex-end;justify-content:center;
+    padding-bottom:5px;touch-action:none;cursor:grab;
+    flex-shrink:0;overflow:visible;
   }
-  .nav-ball svg{width:17px;height:28px;overflow:visible;transition:opacity .2s;}
-  .nav-ball .grip-bar{fill:var(--fg);opacity:.28;transition:opacity .2s;}
-  .nav-ball .grip-line{stroke:var(--fg);stroke-width:1.5;opacity:.5;transition:opacity .2s;}
-  .nav-ball.nb-drag .grip-bar{opacity:.55;}
-  .nav-ball.nb-drag .grip-line{opacity:.9;}
-  .nav-ball.nb-scrub .grip-bar{fill:var(--done-fg);opacity:.7;}
-  .nav-ball.nb-scrub .grip-line{stroke:var(--done-fg);opacity:1;}
-  .nav-ball.nb-pop .grip-bar{opacity:.9;}
-  @keyframes gripPulse{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
-  .nav-ball.nb-scrub{animation:gripPulse 1s ease infinite;}
+  /* rails — fixed, extend wide, sit at matching heights on the bars */
+  .nb-rails{
+    position:absolute;left:-36px;right:-36px;top:0;bottom:0;
+    pointer-events:none;
+  }
+  .nb-rail{
+    position:absolute;left:0;right:0;height:1.5px;
+    background:var(--dim);opacity:.22;
+    transition:background .2s,opacity .2s;
+  }
+  .nb-rail:first-child{top:8px;}     /* ~70% up the bar */
+  .nb-rail:last-child{top:44px;}     /* ~30% up the bar */
+  /* bars — these translate on swipe */
+  .nb-bars{
+    display:flex;gap:7px;align-items:flex-end;
+    transition:transform .45s cubic-bezier(.2,1.4,.4,1);
+  }
+  .nb-bar{
+    width:15px;height:88px;border-radius:7px;
+    background:var(--fg);opacity:.22;
+    transition:opacity .2s,background .2s;
+  }
+  /* states */
+  .nav-ball.nb-drag .nb-bar{opacity:.5;}
+  .nav-ball.nb-drag .nb-bars{transition:none;}
+  .nav-ball.nb-scrub .nb-bar{background:var(--done-fg);opacity:.7;}
+  .nav-ball.nb-scrub .nb-rail{background:var(--done-fg);opacity:.6;}
+  .nav-ball.nb-pop .nb-bar{opacity:.9;transition:opacity .1s;}
+  @keyframes gripPulse{0%,100%{opacity:.5}50%{opacity:.9}}
+  .nav-ball.nb-scrub .nb-bars{animation:gripPulse .9s ease infinite;}
   #ovOverlay{transition:opacity .25s ease;}
   .ov-piece{break-inside:avoid;display:inline-block;width:100%;padding:8px 0 20px;cursor:pointer;}
   .ov-piece-name{font-weight:300;letter-spacing:-.5px;line-height:1;margin-bottom:8px;color:rgba(var(--fg-rgb,255,255,255),.38);}
@@ -544,16 +564,16 @@
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
     </button>
   </div>
-  <!-- nav grip — swipe or hold+drag to navigate categories -->
+  <!-- nav grip — fixed rails + bars that slide left/right, protrude above appbar -->
   <div class="nav-ball" id="navBall" aria-label="swipe to navigate" title="swipe to navigate">
-    <svg viewBox="-5 -2 27 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <!-- two vertical rounded bars -->
-      <rect class="grip-bar" x="0" y="0" width="7" height="28" rx="2.5"/>
-      <rect class="grip-bar" x="10" y="0" width="7" height="28" rx="2.5"/>
-      <!-- two horizontal lines cutting across both bars and extending beyond -->
-      <line class="grip-line" x1="-5" y1="9.5" x2="22" y2="9.5"/>
-      <line class="grip-line" x1="-5" y1="18.5" x2="22" y2="18.5"/>
-    </svg>
+    <div class="nb-rails">
+      <div class="nb-rail"></div>
+      <div class="nb-rail"></div>
+    </div>
+    <div class="nb-bars" id="nbBars">
+      <div class="nb-bar"></div>
+      <div class="nb-bar"></div>
+    </div>
   </div>
   <button class="addbtn" id="addBtn" aria-label="add task">+</button>
 </div>
@@ -2376,12 +2396,12 @@ function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),no
 window.addEventListener('resize',()=>layout(true));
 schedMidnight();
 
-/* ══ NAV GRIP — swipe: navigate one step + spring back
-                hold 400ms then drag: continuous scrub through categories ══ */
+/* ══ NAV GRIP — bars slide on fixed rails, spring back; hold to scrub ══ */
 (()=>{
   const ball=document.getElementById('navBall');
-  if(!ball)return;
-  const SWIPE_THRESHOLD=36, MAX_DRAG=60, SCRUB_PX=32, HOLD_MS=400;
+  const bars=document.getElementById('nbBars');
+  if(!ball||!bars)return;
+  const SWIPE_THRESHOLD=36, MAX_DRAG=55, SCRUB_PX=32, HOLD_MS=400;
 
   let sx=0,sy=0,dx=0,active=false;
   let holdTimer=null,scrubMode=false,scrubAccum=0,lastScrubX=0;
@@ -2392,16 +2412,9 @@ schedMidnight();
     ball.classList.remove('nb-drag');
     if(navigator.vibrate)try{navigator.vibrate([12,40,12]);}catch(_){}
   }
-  function exitScrub(){
-    scrubMode=false;
-    ball.classList.remove('nb-scrub');
-    scrubAccum=0;
-  }
+  function exitScrub(){scrubMode=false;ball.classList.remove('nb-scrub');scrubAccum=0;}
   function clearHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
-  function pop(){
-    ball.classList.add('nb-pop');
-    setTimeout(()=>ball.classList.remove('nb-pop'),200);
-  }
+  function pop(){ball.classList.add('nb-pop');setTimeout(()=>ball.classList.remove('nb-pop'),200);}
   function navigate(dir){
     const next=index+dir;
     if(next<0||next>userCats().length+1)return;
@@ -2415,8 +2428,7 @@ schedMidnight();
     sx=t.clientX;sy=t.clientY;dx=0;active=true;
     scrubAccum=0;lastScrubX=t.clientX;
     ball.classList.add('nb-drag');
-    ball.style.transition='opacity .1s';
-    // start hold timer
+    bars.style.transition='none';
     clearHold();
     holdTimer=setTimeout(enterScrub,HOLD_MS);
   },{passive:true});
@@ -2428,37 +2440,28 @@ schedMidnight();
     const dy=Math.abs(t.clientY-sy);
     if(dy>Math.abs(dx)+8){clearHold();return;}
     e.preventDefault();
-
     if(scrubMode){
-      // continuous scrub — each SCRUB_PX of movement = one category
       const ddx=t.clientX-lastScrubX;
       scrubAccum+=ddx;lastScrubX=t.clientX;
       if(scrubAccum<=-SCRUB_PX){navigate(1);scrubAccum+=SCRUB_PX;}
       else if(scrubAccum>=SCRUB_PX){navigate(-1);scrubAccum-=SCRUB_PX;}
+      bars.style.transform=`translateX(${Math.sign(dx)*Math.min(Math.abs(dx),MAX_DRAG)*0.3}px)`;
     }else{
-      // regular drag — move the grip slightly for feel
       if(Math.abs(dx)>8)clearHold();
-      const clamped=Math.sign(dx)*Math.min(Math.abs(dx),MAX_DRAG)*0.5;
-      ball.style.transform=`translateX(${clamped}px)`;
+      bars.style.transform=`translateX(${Math.sign(dx)*Math.min(Math.abs(dx),MAX_DRAG)*0.6}px)`;
     }
   },{passive:false});
 
   function release(){
     if(!active)return;active=false;clearHold();
     ball.classList.remove('nb-drag');
-
-    if(scrubMode){
-      exitScrub();
-      ball.style.transition='transform .45s cubic-bezier(.2,1.4,.4,1)';
-      ball.style.transform='translateX(0)';
-    }else{
-      // spring back
-      ball.style.transition='transform .45s cubic-bezier(.2,1.4,.4,1)';
-      ball.style.transform='translateX(0)';
-      // swipe nav if past threshold
+    if(scrubMode){exitScrub();}
+    else{
       if(dx<-SWIPE_THRESHOLD){navigate(1);pop();}
       else if(dx>SWIPE_THRESHOLD){navigate(-1);pop();}
     }
+    bars.style.transition='transform .45s cubic-bezier(.2,1.4,.4,1)';
+    bars.style.transform='translateX(0)';
     dx=0;
   }
 
