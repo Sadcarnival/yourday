@@ -445,21 +445,23 @@
   .today-task .chk-item{font-size:13px;color:var(--dim);line-height:1.4;}
   .today-task.done .t-note,.today-task.done .t-bullets,.today-task.done .t-checklist{opacity:.28;}
 
+  /* ── nav grip ── */
   .nav-ball{
-    width:22px;height:22px;border-radius:50%;
-    border:1.5px solid var(--dim);background:transparent;
-    cursor:grab;touch-action:none;flex-shrink:0;
-    transition:transform .45s cubic-bezier(.2,1.4,.4,1),border-color .15s,background .15s;
+    width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+    cursor:grab;touch-action:none;flex-shrink:0;position:relative;
+    transition:transform .45s cubic-bezier(.2,1.4,.4,1);
+    -webkit-tap-highlight-color:transparent;
   }
-  .nav-ball.nb-drag{
-    border-color:var(--fg);background:var(--btn-active);
-    cursor:grabbing;transition:border-color .1s,background .1s;
-  }
-  .nav-ball.nb-pop{
-    transform:scale(1.25);
-    border-color:var(--done-fg);
-    transition:transform .15s ease,border-color .1s;
-  }
+  .nav-ball svg{width:17px;height:28px;overflow:visible;transition:opacity .2s;}
+  .nav-ball .grip-bar{fill:var(--fg);opacity:.28;transition:opacity .2s;}
+  .nav-ball .grip-line{stroke:var(--fg);stroke-width:1.5;opacity:.5;transition:opacity .2s;}
+  .nav-ball.nb-drag .grip-bar{opacity:.55;}
+  .nav-ball.nb-drag .grip-line{opacity:.9;}
+  .nav-ball.nb-scrub .grip-bar{fill:var(--done-fg);opacity:.7;}
+  .nav-ball.nb-scrub .grip-line{stroke:var(--done-fg);opacity:1;}
+  .nav-ball.nb-pop .grip-bar{opacity:.9;}
+  @keyframes gripPulse{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
+  .nav-ball.nb-scrub{animation:gripPulse 1s ease infinite;}
   #ovOverlay{transition:opacity .25s ease;}
   .ov-piece{break-inside:avoid;display:inline-block;width:100%;padding:8px 0 20px;cursor:pointer;}
   .ov-piece-name{font-weight:300;letter-spacing:-.5px;line-height:1;margin-bottom:8px;color:rgba(var(--fg-rgb,255,255,255),.38);}
@@ -542,8 +544,17 @@
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
     </button>
   </div>
-  <!-- nav ball — sits between the icons and + button, swipe left/right to change category -->
-  <div class="nav-ball" id="navBall" aria-label="swipe to navigate categories" title="swipe to navigate"></div>
+  <!-- nav grip — swipe or hold+drag to navigate categories -->
+  <div class="nav-ball" id="navBall" aria-label="swipe to navigate" title="swipe to navigate">
+    <svg viewBox="-5 -2 27 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- two vertical rounded bars -->
+      <rect class="grip-bar" x="0" y="0" width="7" height="28" rx="2.5"/>
+      <rect class="grip-bar" x="10" y="0" width="7" height="28" rx="2.5"/>
+      <!-- two horizontal lines cutting across both bars and extending beyond -->
+      <line class="grip-line" x1="-5" y1="9.5" x2="22" y2="9.5"/>
+      <line class="grip-line" x1="-5" y1="18.5" x2="22" y2="18.5"/>
+    </svg>
+  </div>
   <button class="addbtn" id="addBtn" aria-label="add task">+</button>
 </div>
 
@@ -2365,17 +2376,49 @@ function schedMidnight(){const now=new Date(),next=new Date(now.getFullYear(),no
 window.addEventListener('resize',()=>layout(true));
 schedMidnight();
 
-/* ══ NAV BALL — swipe left/right to change category, springs back to centre ══ */
+/* ══ NAV GRIP — swipe: navigate one step + spring back
+                hold 400ms then drag: continuous scrub through categories ══ */
 (()=>{
   const ball=document.getElementById('navBall');
   if(!ball)return;
-  const THRESHOLD=36,MAX_DRAG=56;
+  const SWIPE_THRESHOLD=36, MAX_DRAG=60, SCRUB_PX=32, HOLD_MS=400;
+
   let sx=0,sy=0,dx=0,active=false;
+  let holdTimer=null,scrubMode=false,scrubAccum=0,lastScrubX=0;
+
+  function enterScrub(){
+    scrubMode=true;
+    ball.classList.add('nb-scrub');
+    ball.classList.remove('nb-drag');
+    if(navigator.vibrate)try{navigator.vibrate([12,40,12]);}catch(_){}
+  }
+  function exitScrub(){
+    scrubMode=false;
+    ball.classList.remove('nb-scrub');
+    scrubAccum=0;
+  }
+  function clearHold(){if(holdTimer){clearTimeout(holdTimer);holdTimer=null;}}
+  function pop(){
+    ball.classList.add('nb-pop');
+    setTimeout(()=>ball.classList.remove('nb-pop'),200);
+  }
+  function navigate(dir){
+    const next=index+dir;
+    if(next<0||next>userCats().length+1)return;
+    goTo(next);
+    if(navigator.vibrate)try{navigator.vibrate(6);}catch(_){}
+  }
 
   ball.addEventListener('touchstart',e=>{
-    const t=e.touches[0];sx=t.clientX;sy=t.clientY;dx=0;active=true;
+    if(e.touches.length!==1)return;
+    const t=e.touches[0];
+    sx=t.clientX;sy=t.clientY;dx=0;active=true;
+    scrubAccum=0;lastScrubX=t.clientX;
     ball.classList.add('nb-drag');
-    ball.style.transition='border-color .1s,background .1s';
+    ball.style.transition='opacity .1s';
+    // start hold timer
+    clearHold();
+    holdTimer=setTimeout(enterScrub,HOLD_MS);
   },{passive:true});
 
   ball.addEventListener('touchmove',e=>{
@@ -2383,27 +2426,42 @@ schedMidnight();
     const t=e.touches[0];
     dx=t.clientX-sx;
     const dy=Math.abs(t.clientY-sy);
-    if(dy>Math.abs(dx))return;
+    if(dy>Math.abs(dx)+8){clearHold();return;}
     e.preventDefault();
-    const clamped=Math.sign(dx)*Math.min(Math.abs(dx),MAX_DRAG);
-    ball.style.transform=`translateX(${clamped}px)`;
+
+    if(scrubMode){
+      // continuous scrub — each SCRUB_PX of movement = one category
+      const ddx=t.clientX-lastScrubX;
+      scrubAccum+=ddx;lastScrubX=t.clientX;
+      if(scrubAccum<=-SCRUB_PX){navigate(1);scrubAccum+=SCRUB_PX;}
+      else if(scrubAccum>=SCRUB_PX){navigate(-1);scrubAccum-=SCRUB_PX;}
+    }else{
+      // regular drag — move the grip slightly for feel
+      if(Math.abs(dx)>8)clearHold();
+      const clamped=Math.sign(dx)*Math.min(Math.abs(dx),MAX_DRAG)*0.5;
+      ball.style.transform=`translateX(${clamped}px)`;
+    }
   },{passive:false});
 
   function release(){
-    if(!active)return;active=false;
+    if(!active)return;active=false;clearHold();
     ball.classList.remove('nb-drag');
-    ball.style.transition='transform .45s cubic-bezier(.2,1.4,.4,1),border-color .15s,background .15s';
-    ball.style.transform='translateX(0)';
-    if(dx<-THRESHOLD){
-      goTo(Math.min(index+1,userCats().length+1));
-      pop();
-    }else if(dx>THRESHOLD){
-      goTo(Math.max(0,index-1));
-      pop();
+
+    if(scrubMode){
+      exitScrub();
+      ball.style.transition='transform .45s cubic-bezier(.2,1.4,.4,1)';
+      ball.style.transform='translateX(0)';
+    }else{
+      // spring back
+      ball.style.transition='transform .45s cubic-bezier(.2,1.4,.4,1)';
+      ball.style.transform='translateX(0)';
+      // swipe nav if past threshold
+      if(dx<-SWIPE_THRESHOLD){navigate(1);pop();}
+      else if(dx>SWIPE_THRESHOLD){navigate(-1);pop();}
     }
     dx=0;
   }
-  function pop(){ball.classList.add('nb-pop');setTimeout(()=>ball.classList.remove('nb-pop'),200);}
+
   ball.addEventListener('touchend',release,{passive:true});
   ball.addEventListener('touchcancel',release,{passive:true});
 })();
