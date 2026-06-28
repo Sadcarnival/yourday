@@ -1443,14 +1443,21 @@ function datesWithTasks(){
 }
 function tasksForDate(dateKey){
   const out=[];
-  cats.forEach((c,ci)=>c.tasks.forEach(t=>{if(t.dueDate===dateKey)out.push({task:t,catIdx:ci,catName:c.name});}));
+  const todayKey=fmtDateKey(new Date());
+  cats.forEach((c,ci)=>{
+    c.tasks.forEach(t=>{
+      // regular due-date tasks
+      if(t.dueDate===dateKey)out.push({task:t,catIdx:ci,catName:c.name});
+      // __today__ built-in tasks always appear on today's agenda (no due date needed)
+      else if(c.id==='__today__'&&dateKey===todayKey)out.push({task:t,catIdx:ci,catName:'today'});
+    });
+  });
   return out;
 }
 
 function renderOverviewPanel(panelEl){
   if(!panelEl)return;
   panelEl.innerHTML=`
-    <div class="today-section" id="ovTodaySection"></div>
     <div class="cal${calExpanded?' expanded':''}" id="ovCal">
       <div class="cal-header" id="ovCalHeader">
         <span class="cal-month" id="ovCalMonthLabel"></span>
@@ -1479,7 +1486,7 @@ function renderOverviewPanel(panelEl){
   });
   document.getElementById('ovCalPrev').addEventListener('click',e=>{e.stopPropagation();shiftCalMonth(-1);});
   document.getElementById('ovCalNext').addEventListener('click',e=>{e.stopPropagation();shiftCalMonth(1);});
-  renderTodaySection();renderCalWeek();renderCalMonthGrid();renderAgenda();
+  renderCalWeek();renderCalMonthGrid();renderAgenda();
 }
 
 function renderTodaySection(){
@@ -1537,7 +1544,7 @@ function showTodayTaskOptions(task){
   const delBtn=document.createElement('button');delBtn.className='action-btn action-del';delBtn.textContent='delete';
   delBtn.onclick=()=>{
     const tc=todayCat();tc.tasks=tc.tasks.filter(t=>t.id!==task.id);
-    persist();closeCatOptSheet();renderTodaySection();
+    persist();closeCatOptSheet();if(pager.children[0])renderOverviewPanel(pager.children[0]);
   };btns.appendChild(delBtn);
   bg.classList.add('open');sheet.classList.add('open');
 }
@@ -1604,16 +1611,34 @@ function renderAgenda(){
   document.getElementById('ovAgendaCount').textContent=items.length+' task'+(items.length!==1?'s':'');
 
   const list=document.getElementById('ovAgendaList');list.innerHTML='';
-  items.forEach(({task,catName})=>{
+  items.forEach(({task,catName,catIdx})=>{
     const el=document.createElement('div');
     el.className='task'+(task.done?' done':'');
-    el.innerHTML=`<div class="task-body">
-        <div class="cat-tag">${catName}</div>
-        <div class="t-title">${task.text}</div>
-      </div>
-      <button class="task-check" aria-label="${task.done?'mark incomplete':'mark complete'}"></button>`;
-    el.querySelector('.task-check').addEventListener('click',e=>{e.stopPropagation();toggleTaskById(task.id);});
-    el.querySelector('.task-body').addEventListener('click',()=>openSheet(task));
+
+    const body=document.createElement('div');body.className='task-body';
+    body.innerHTML=`<div class="cat-tag">${catName}</div><div class="t-title">${task.text}</div>`;
+
+    // render note/checklist inline
+    const noteEl=renderNoteEl(task.note,task.id);
+    if(noteEl){
+      // wire up checklist item toggles in the agenda context
+      noteEl.querySelectorAll('.chk-item').forEach(chkEl=>{
+        chkEl.addEventListener('click',e=>{
+          e.stopPropagation();
+          toggleCheckItem(chkEl);   // reuse the existing toggle function
+          renderAgenda();            // re-render agenda to reflect change
+        });
+      });
+      body.appendChild(noteEl);
+    }
+
+    const checkBtn=document.createElement('button');
+    checkBtn.className='task-check';
+    checkBtn.setAttribute('aria-label',task.done?'mark incomplete':'mark complete');
+    checkBtn.addEventListener('click',e=>{e.stopPropagation();toggleTaskById(task.id);});
+    body.addEventListener('click',()=>openSheet(task));
+
+    el.appendChild(body);el.appendChild(checkBtn);
     list.appendChild(el);
   });
 
@@ -1631,8 +1656,12 @@ function renderAgenda(){
   }
   const addRow=document.createElement('div');
   addRow.className='add-for-day';
+  const isAddingToday=calSelectedDate===fmtDateKey(new Date());
   addRow.innerHTML=`<span class="plus-circle">+</span> add a task for ${label==='today'?'today':label}`;
-  addRow.addEventListener('click',()=>openSheet(null,calSelectedDate));
+  addRow.addEventListener('click',()=>{
+    if(isAddingToday)openSheet(null,null,true);   // forceToday → defaults to __today__ category
+    else openSheet(null,calSelectedDate);
+  });
   list.appendChild(addRow);
 }
 
