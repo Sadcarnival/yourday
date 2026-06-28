@@ -1618,15 +1618,13 @@ function renderAgenda(){
     const body=document.createElement('div');body.className='task-body';
     body.innerHTML=`<div class="cat-tag">${catName}</div><div class="t-title">${task.text}</div>`;
 
-    // render note/checklist inline
     const noteEl=renderNoteEl(task.note,task.id);
     if(noteEl){
-      // wire up checklist item toggles in the agenda context
       noteEl.querySelectorAll('.chk-item').forEach(chkEl=>{
         chkEl.addEventListener('click',e=>{
           e.stopPropagation();
-          toggleCheckItem(chkEl);   // reuse the existing toggle function
-          renderAgenda();            // re-render agenda to reflect change
+          toggleCheckItem(chkEl);
+          // update just this item's visual without full re-render (already done inside toggleCheckItem)
         });
       });
       body.appendChild(noteEl);
@@ -1636,7 +1634,9 @@ function renderAgenda(){
     checkBtn.className='task-check';
     checkBtn.setAttribute('aria-label',task.done?'mark incomplete':'mark complete');
     checkBtn.addEventListener('click',e=>{e.stopPropagation();toggleTaskById(task.id);});
-    body.addEventListener('click',()=>openSheet(task));
+    // only open sheet when clicking the title/tag area, not the note
+    body.querySelector('.t-title').addEventListener('click',e=>{e.stopPropagation();openSheet(task);});
+    body.querySelector('.cat-tag').addEventListener('click',e=>{e.stopPropagation();openSheet(task);});
 
     el.appendChild(body);el.appendChild(checkBtn);
     list.appendChild(el);
@@ -1897,12 +1897,19 @@ function toggleTask(el){
   if(task.dueDate&&pager.children[0])renderOverviewPanel(pager.children[0]);
 }
 function toggleCheckItem(el){
-  const taskEl=el.closest('.task'),taskId=taskEl.dataset.id,idx=parseInt(el.dataset.idx,10);
-  const cat=curCat(),task=cat?cat.tasks.find(t=>t.id===taskId):null;
-  if(!task||!task.note||task.note.type!=='checklist')return;
-  const item=task.note.items[idx];item.checked=!item.checked;
+  // taskId stamped directly on the .chk-item via data-task-id (set in renderNoteEl)
+  // Fall back to the nearest .task ancestor's data-id for category-panel context
+  const taskEl=el.closest('.task');
+  const taskId=el.dataset.taskId||(taskEl?taskEl.dataset.id:null);
+  const idx=parseInt(el.dataset.idx,10);
+  if(!taskId||isNaN(idx))return;
+  const loc=findTaskLocation(taskId);
+  if(!loc||!loc.task.note||loc.task.note.type!=='checklist')return;
+  const item=loc.task.note.items[idx];
+  item.checked=!item.checked;
   el.classList.toggle('chk-done',item.checked);
-  el.querySelector('.chk-mark').textContent=item.checked?'✓':'○';persist();
+  el.querySelector('.chk-mark').textContent=item.checked?'✓':'○';
+  persist();
 }
 
 /* ══ ADD / EDIT SHEET ══ */
